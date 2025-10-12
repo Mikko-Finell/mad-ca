@@ -1,7 +1,7 @@
 package life
 
 import (
-	"mad-ca/internal/core"
+	"mad-ca/pkg/core"
 )
 
 // Life implements Conway's Game of Life with toroidal wrapping.

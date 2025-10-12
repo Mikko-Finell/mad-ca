@@ -5,11 +5,11 @@ import (
 	"flag"
 	"log"
 
-	"mad-ca/internal/app"
-	"mad-ca/internal/core"
-	_ "mad-ca/internal/sims/briansbrain"
-	_ "mad-ca/internal/sims/elementary"
-	_ "mad-ca/internal/sims/life"
+	"mad-ca/pkg/core"
+	_ "mad-ca/pkg/sims/briansbrain"
+	_ "mad-ca/pkg/sims/elementary"
+	_ "mad-ca/pkg/sims/life"
+	"mad-ca/ui/internal/app"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )

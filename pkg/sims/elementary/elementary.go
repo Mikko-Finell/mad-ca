@@ -3,7 +3,7 @@ package elementary
 import (
 	"strconv"
 
-	"mad-ca/internal/core"
+	"mad-ca/pkg/core"
 )
 
 // Config holds parameters for the elementary cellular automaton.

@@ -1,6 +1,6 @@
 package briansbrain
 
-import "mad-ca/internal/core"
+import "mad-ca/pkg/core"
 
 const (
 	stateDead  = 0

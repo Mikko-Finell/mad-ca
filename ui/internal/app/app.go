@@ -4,9 +4,9 @@ import (
 	"image/color"
 	"time"
 
-	"mad-ca/internal/core"
-	"mad-ca/internal/render"
-	"mad-ca/internal/ui"
+	"mad-ca/pkg/core"
+	"mad-ca/ui/internal/render"
+	"mad-ca/ui/internal/ui"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
