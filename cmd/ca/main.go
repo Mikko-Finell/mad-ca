@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"log"
 
@@ -33,7 +34,7 @@ func main() {
 	ebiten.SetTPS(cfg.TPS)
 	ebiten.SetWindowSize(size.W*cfg.Scale, size.H*cfg.Scale)
 
-	if err := ebiten.RunGame(game); err != nil {
+	if err := ebiten.RunGame(game); err != nil && !errors.Is(err, ebiten.Termination) {
 		log.Fatal(err)
 	}
 }
