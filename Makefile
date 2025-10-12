@@ -1,8 +1,8 @@
 run:
-	go run ./cmd/ca
+go run -tags ebiten ./cmd/ca
 
 run-life:
-	go run ./cmd/ca -sim=life
+go run -tags ebiten ./cmd/ca -sim=life
 
 build:
 	mkdir -p bin
