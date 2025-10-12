@@ -30,3 +30,8 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Project artifacts
+bin/
+web/ca.wasm
+*.DS_Store

@@ -16,7 +16,6 @@ import (
 type Game struct {
 	sim     core.Sim
 	painter *render.GridPainter
-	stepper *core.FixedStep
 	overlay *ui.Overlay
 
 	onColor  color.Color
@@ -29,12 +28,11 @@ type Game struct {
 }
 
 // New constructs a Game for the provided simulation.
-func New(sim core.Sim, scale, tps int, seed int64) *Game {
+func New(sim core.Sim, scale int, seed int64) *Game {
 	gp := render.NewGridPainter(sim.Size().W, sim.Size().H)
 	return &Game{
 		sim:      sim,
 		painter:  gp,
-		stepper:  core.NewFixedStep(tps),
 		overlay:  ui.NewOverlay(),
 		onColor:  color.White,
 		offColor: color.Black,
@@ -72,7 +70,7 @@ func (g *Game) Update() error {
 		g.overlay.Update()
 	}
 
-	if (!g.paused && g.stepper.ShouldStep()) || g.tickOnce {
+	if (!g.paused) || g.tickOnce {
 		g.sim.Step()
 		g.tickOnce = false
 	}
