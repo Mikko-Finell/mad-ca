@@ -1,3 +1,5 @@
+//go:build ebiten
+
 package app
 
 import (
