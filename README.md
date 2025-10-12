@@ -7,8 +7,15 @@ application shell, and a growing catalog of simulation rules. Each simulation is
 ## Getting started
 
 ```bash
-go run ./cmd/ca -sim=life -scale=3 -tps=60
+go run -tags ebiten ./cmd/ca -sim=life -scale=3 -tps=60
 ```
+
+> **Note**
+>
+> The graphical build depends on native GLFW/X11 headers. When those headers are
+> unavailable (as in many CI or container environments) the repository falls
+> back to a headless stub so `go test ./...` continues to work. To run the GUI
+> you must pass the `ebiten` build tag as shown above.
 
 ## Project layout
 

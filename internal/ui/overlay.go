@@ -1,3 +1,5 @@
+//go:build ebiten
+
 package ui
 
 import "github.com/hajimehoshi/ebiten/v2"
