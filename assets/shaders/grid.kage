@@ -1,0 +1,7 @@
+package main
+
+// grid.kage is a placeholder shader that simply samples from the source image.
+
+func Fragment(position vec4, texCoord vec2, color vec4) vec4 {
+return imageSrc0At(texCoord)
+}
