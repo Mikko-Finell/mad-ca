@@ -50,6 +50,9 @@ func (g *Game) Reset(seed int64) {
 
 // Update handles per-frame logic and advances the simulation.
 func (g *Game) Update() error {
+	if inpututil.IsKeyJustPressed(ebiten.KeyQ) || inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
+		return ebiten.Termination
+	}
 	if inpututil.IsKeyJustPressed(ebiten.KeySpace) {
 		g.paused = !g.paused
 	}
