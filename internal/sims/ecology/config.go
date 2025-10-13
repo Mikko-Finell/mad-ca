@@ -10,10 +10,12 @@ type Params struct {
 	GrassPatchRadiusMax int
 	GrassPatchDensity   float64
 
-	LavaLifeMin      int
-	LavaLifeMax      int
-	LavaSpreadChance float64
-	BurnTTL          int
+	LavaLifeMin         int
+	LavaLifeMax         int
+	LavaSpreadChance    float64
+	LavaSpreadMaskFloor float64
+	LavaCoolingExtra    float64
+	BurnTTL             int
 
 	FireSpreadChance         float64
 	FireLavaIgniteChance     float64
@@ -65,6 +67,8 @@ func DefaultConfig() Config {
 			LavaLifeMin:                   12,
 			LavaLifeMax:                   32,
 			LavaSpreadChance:              0.08,
+			LavaSpreadMaskFloor:           0.2,
+			LavaCoolingExtra:              1,
 			BurnTTL:                       3,
 			FireSpreadChance:              0.25,
 			FireLavaIgniteChance:          0.8,
@@ -156,6 +160,25 @@ func FromMap(cfg map[string]string) Config {
 	if v, ok := cfg["lava_spread_chance"]; ok {
 		if parsed, err := strconv.ParseFloat(v, 64); err == nil && parsed >= 0 {
 			c.Params.LavaSpreadChance = parsed
+		}
+	}
+	if v, ok := cfg["lava_spread_mask_floor"]; ok {
+		if parsed, err := strconv.ParseFloat(v, 64); err == nil {
+			if parsed < 0 {
+				parsed = 0
+			}
+			if parsed > 1 {
+				parsed = 1
+			}
+			c.Params.LavaSpreadMaskFloor = parsed
+		}
+	}
+	if v, ok := cfg["lava_cooling_extra"]; ok {
+		if parsed, err := strconv.ParseFloat(v, 64); err == nil {
+			if parsed < 0 {
+				parsed = 0
+			}
+			c.Params.LavaCoolingExtra = parsed
 		}
 	}
 	if v, ok := cfg["burn_ttl"]; ok {

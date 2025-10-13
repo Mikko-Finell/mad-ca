@@ -88,7 +88,7 @@
 
 ## Phase 4 — Tectonics, Volcano Proto, Lava
 
-**Status:** In progress — proto-volcano region spawner, mask rasterization, and uplift conversion from rock to mountain are now active each tick.
+**Status:** In progress — proto-volcano region spawner, mask rasterization, uplift conversion, and mask-weighted lava spread/cooling tuning are active with deterministic long-run regression coverage.
 
 **Goal:** Geological engine: uplift, eruptions, lava spread/cool.
 
@@ -113,7 +113,7 @@
 
 **Notes:**
 
-* Proto-volcano lifecycle now consumes proto expirations to trigger eruptions that seed lava cores, uplift rims, and clear vegetation while feeding the lava system. Next step: tune eruption spread/cooling balance and add long-run regression coverage for repeated volcano cycles.
+* Proto-volcano lifecycle now consumes proto expirations to trigger eruptions that seed lava cores, uplift rims, and clear vegetation while feeding the lava system. Lava spread and cooling now scale with the volcano mask so flows stay localized and cool between eruptions, and a long-run regression locks repeated volcano cycles. Next step: wire rain-region cooling multipliers into the lava system and broaden regression to cover mixed rain/volcano interactions.
 
 ---
 
