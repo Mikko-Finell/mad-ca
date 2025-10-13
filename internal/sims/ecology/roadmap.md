@@ -119,7 +119,7 @@
 
 ## Phase 5 — Regional Rain Integration & Tuning
 
-**Status:** Not started.
+**Status:** In progress — rain regions now rasterize into the mask with gaussian falloff, fire/lava multipliers honor RainMask, and stochastic spawning plus expiry tests are in place.
 
 **Goal:** Replace per-tile wetness with **Rain regions** and wire all multipliers.
 
@@ -138,6 +138,11 @@
 * Side-by-side: same seed w/ and w/o rain → cooler lava and smaller burn scars under rain tracks.
 * “Stripe test”: inject a long rain band; confirm gradient effects (softer edges).
 * Performance: mask rasterization scales with small region counts.
+
+**Notes:**
+
+* Added gaussian rain region rasterization, cap-aware spawning, and expiry coverage alongside regression updates for the new rain stripe behavior.
+* Next step: tune spawn frequencies/strength ranges so mixed rain–volcano cycles regain pre-rain variability and document telemetry deltas for with/without rain comparisons.
 
 **Exit Criteria**
 

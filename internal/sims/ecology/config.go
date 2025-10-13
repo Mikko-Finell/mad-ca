@@ -22,6 +22,15 @@ type Params struct {
 	FireRainSpreadDampen     float64
 	FireRainExtinguishChance float64
 
+	RainMaxRegions  int
+	RainSpawnChance float64
+	RainRadiusMin   int
+	RainRadiusMax   int
+	RainTTLMin      int
+	RainTTLMax      int
+	RainStrengthMin float64
+	RainStrengthMax float64
+
 	GrassNeighborThreshold int
 	GrassSpreadChance      float64
 	ShrubNeighborThreshold int
@@ -74,6 +83,14 @@ func DefaultConfig() Config {
 			FireLavaIgniteChance:          0.8,
 			FireRainSpreadDampen:          0.75,
 			FireRainExtinguishChance:      0.5,
+			RainMaxRegions:                6,
+			RainSpawnChance:               0.1,
+			RainRadiusMin:                 8,
+			RainRadiusMax:                 24,
+			RainTTLMin:                    8,
+			RainTTLMax:                    20,
+			RainStrengthMin:               0.4,
+			RainStrengthMax:               0.9,
 			GrassNeighborThreshold:        1,
 			GrassSpreadChance:             0.25,
 			ShrubNeighborThreshold:        3,
@@ -205,6 +222,55 @@ func FromMap(cfg map[string]string) Config {
 		if parsed, err := strconv.ParseFloat(v, 64); err == nil && parsed >= 0 {
 			c.Params.FireRainExtinguishChance = parsed
 		}
+	}
+	if v, ok := cfg["rain_max_regions"]; ok {
+		if parsed, err := strconv.Atoi(v); err == nil && parsed >= 0 {
+			c.Params.RainMaxRegions = parsed
+		}
+	}
+	if v, ok := cfg["rain_spawn_chance"]; ok {
+		if parsed, err := strconv.ParseFloat(v, 64); err == nil && parsed >= 0 {
+			c.Params.RainSpawnChance = parsed
+		}
+	}
+	if v, ok := cfg["rain_radius_min"]; ok {
+		if parsed, err := strconv.Atoi(v); err == nil && parsed >= 0 {
+			c.Params.RainRadiusMin = parsed
+		}
+	}
+	if v, ok := cfg["rain_radius_max"]; ok {
+		if parsed, err := strconv.Atoi(v); err == nil && parsed >= 0 {
+			c.Params.RainRadiusMax = parsed
+		}
+	}
+	if c.Params.RainRadiusMax < c.Params.RainRadiusMin {
+		c.Params.RainRadiusMax = c.Params.RainRadiusMin
+	}
+	if v, ok := cfg["rain_ttl_min"]; ok {
+		if parsed, err := strconv.Atoi(v); err == nil && parsed >= 0 {
+			c.Params.RainTTLMin = parsed
+		}
+	}
+	if v, ok := cfg["rain_ttl_max"]; ok {
+		if parsed, err := strconv.Atoi(v); err == nil && parsed >= 0 {
+			c.Params.RainTTLMax = parsed
+		}
+	}
+	if c.Params.RainTTLMax < c.Params.RainTTLMin {
+		c.Params.RainTTLMax = c.Params.RainTTLMin
+	}
+	if v, ok := cfg["rain_strength_min"]; ok {
+		if parsed, err := strconv.ParseFloat(v, 64); err == nil && parsed >= 0 {
+			c.Params.RainStrengthMin = parsed
+		}
+	}
+	if v, ok := cfg["rain_strength_max"]; ok {
+		if parsed, err := strconv.ParseFloat(v, 64); err == nil && parsed >= 0 {
+			c.Params.RainStrengthMax = parsed
+		}
+	}
+	if c.Params.RainStrengthMax < c.Params.RainStrengthMin {
+		c.Params.RainStrengthMax = c.Params.RainStrengthMin
 	}
 	if v, ok := cfg["grass_neighbor_threshold"]; ok {
 		if parsed, err := strconv.Atoi(v); err == nil && parsed >= 0 {
