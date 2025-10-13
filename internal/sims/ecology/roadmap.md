@@ -27,7 +27,7 @@
 
 ## Phase 2 — Vegetation Succession (No Fire Yet)
 
-**Status:** Not started.
+**Status:** In progress — Moore neighbor counting and deterministic vegetation succession implemented.
 
 **Goal:** Get lifelike grass→shrub→tree growth and dirt→grass colonization.
 
@@ -44,6 +44,11 @@
 * Growth curve sanity: total vegetation area increases from seeds.
 * Patchiness: cluster size distribution not degenerate (no checkerboard).
 * Deterministic replay for 1k ticks with fixed seed.
+
+**Notes:**
+
+* Implemented helper-based neighbor counting and per-tick succession updates with unit tests covering spread and stage advancement.
+* Next step: add telemetry to measure growth curve and patchiness to complete Phase 2 validation.
 
 **Exit Criteria**
 

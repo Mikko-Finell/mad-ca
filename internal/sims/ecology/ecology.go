@@ -139,8 +139,92 @@ func (w *World) Reset(seed int64) {
 	copy(w.vegNext, w.vegCurr)
 }
 
-// Step advances the simulation. Ecology has no rules so the grid never changes.
-func (w *World) Step() {}
+// Step advances the simulation by applying the vegetation succession rules once.
+func (w *World) Step() {
+	if w.w == 0 || w.h == 0 {
+		return
+	}
+
+	grassNeighbors, shrubNeighbors := w.mooreNeighborCounts()
+
+	thresholdGrass := uint8(w.cfg.Params.GrassNeighborThreshold)
+	thresholdShrub := uint8(w.cfg.Params.ShrubNeighborThreshold)
+	thresholdTree := uint8(w.cfg.Params.TreeNeighborThreshold)
+
+	total := w.w * w.h
+	for i := 0; i < total; i++ {
+		current := w.vegCurr[i]
+		next := current
+
+		switch current {
+		case VegetationNone:
+			if w.groundCurr[i] == GroundDirt && grassNeighbors[i] >= thresholdGrass {
+				if w.rng.Float64() < w.cfg.Params.GrassSpreadChance {
+					next = VegetationGrass
+				}
+			}
+		case VegetationGrass:
+			if grassNeighbors[i] >= thresholdShrub {
+				if w.rng.Float64() < w.cfg.Params.ShrubGrowthChance {
+					next = VegetationShrub
+				}
+			}
+		case VegetationShrub:
+			if shrubNeighbors[i] >= thresholdTree {
+				if w.rng.Float64() < w.cfg.Params.TreeGrowthChance {
+					next = VegetationTree
+				}
+			}
+		}
+
+		w.vegNext[i] = next
+	}
+
+	w.vegCurr, w.vegNext = w.vegNext, w.vegCurr
+}
+
+func (w *World) mooreNeighborCounts() ([]uint8, []uint8) {
+	total := w.w * w.h
+	grassCounts := make([]uint8, total)
+	shrubCounts := make([]uint8, total)
+	if total == 0 {
+		return grassCounts, shrubCounts
+	}
+
+	for y := 0; y < w.h; y++ {
+		for x := 0; x < w.w; x++ {
+			idx := y*w.w + x
+			val := w.vegCurr[idx]
+			if val != VegetationGrass && val != VegetationShrub {
+				continue
+			}
+
+			for dy := -1; dy <= 1; dy++ {
+				ny := y + dy
+				if ny < 0 || ny >= w.h {
+					continue
+				}
+				for dx := -1; dx <= 1; dx++ {
+					nx := x + dx
+					if nx < 0 || nx >= w.w {
+						continue
+					}
+					if dx == 0 && dy == 0 {
+						continue
+					}
+					nIdx := ny*w.w + nx
+					if val == VegetationGrass {
+						grassCounts[nIdx]++
+					} else {
+						shrubCounts[nIdx]++
+					}
+				}
+			}
+		}
+	}
+
+	return grassCounts, shrubCounts
+}
 
 func (w *World) sprinkleRock() {
 	if w.cfg.Params.RockChance <= 0 {
