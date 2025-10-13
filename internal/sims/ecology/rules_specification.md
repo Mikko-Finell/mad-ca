@@ -210,7 +210,3 @@ This version forms a closed ecological loop:
 3. **Lava** spreads, burns vegetation, **cools to rock**, restoring substrate.
 4. **Rain regions** drift across the map, damping fires and hastening cooling.
 5. Over many ticks, the map cycles through **growth, destruction, and renewal**, generating an emergent, believable terrain ecology.
-
----
-
-Would you like me to produce a compact **parameter table + JSON config** (ready to load into code) as the next step?
