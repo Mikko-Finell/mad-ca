@@ -14,6 +14,11 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 )
 
+// Igniter allows simulations to expose manual fire ignition hooks for debugging.
+type Igniter interface {
+	IgniteAt(x, y int)
+}
+
 // Game adapts a core simulation to the ebiten.Game interface.
 type Game struct {
 	sim     core.Sim
@@ -27,11 +32,17 @@ type Game struct {
 	paused   bool
 	tickOnce bool
 	seed     int64
+
+	igniter Igniter
 }
 
 // New constructs a Game for the provided simulation.
 func New(sim core.Sim, scale int, seed int64) *Game {
 	gp := render.NewGridPainter(sim.Size().W, sim.Size().H)
+	var igniter Igniter
+	if i, ok := sim.(Igniter); ok {
+		igniter = i
+	}
 	return &Game{
 		sim:      sim,
 		painter:  gp,
@@ -40,6 +51,7 @@ func New(sim core.Sim, scale int, seed int64) *Game {
 		offColor: color.Black,
 		scale:    scale,
 		seed:     seed,
+		igniter:  igniter,
 	}
 }
 
@@ -73,6 +85,15 @@ func (g *Game) Update() error {
 
 	if g.overlay != nil {
 		g.overlay.Update()
+	}
+
+	if g.igniter != nil && inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+		mx, my := ebiten.CursorPosition()
+		scale := g.scale
+		if scale <= 0 {
+			scale = 1
+		}
+		g.igniter.IgniteAt(mx/scale, my/scale)
 	}
 
 	if (!g.paused) || g.tickOnce {

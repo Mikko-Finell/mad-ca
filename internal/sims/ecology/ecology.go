@@ -39,6 +39,7 @@ type World struct {
 	vegNext    []Vegetation
 	lavaLife   []uint8
 	burnTTL    []uint8
+	burnNext   []uint8
 	rainCurr   []float32
 	rainNext   []float32
 	volCurr    []float32
@@ -88,6 +89,7 @@ func NewWithConfig(cfg Config) *World {
 		vegNext:    make([]Vegetation, total),
 		lavaLife:   make([]uint8, total),
 		burnTTL:    make([]uint8, total),
+		burnNext:   make([]uint8, total),
 		rainCurr:   make([]float32, total),
 		rainNext:   make([]float32, total),
 		volCurr:    make([]float32, total),
@@ -141,6 +143,7 @@ func (w *World) Reset(seed int64) {
 		w.vegNext[i] = VegetationNone
 		w.lavaLife[i] = 0
 		w.burnTTL[i] = 0
+		w.burnNext[i] = 0
 		w.rainCurr[i] = 0
 		w.rainNext[i] = 0
 		w.volCurr[i] = 0
@@ -163,6 +166,8 @@ func (w *World) Step() {
 		return
 	}
 
+	w.applyFire()
+
 	grassNeighbors, shrubNeighbors := w.mooreNeighborCounts()
 
 	thresholdGrass := uint8(w.cfg.Params.GrassNeighborThreshold)
@@ -173,6 +178,11 @@ func (w *World) Step() {
 	for i := 0; i < total; i++ {
 		current := w.vegCurr[i]
 		next := current
+
+		if w.burnTTL[i] > 0 {
+			w.vegNext[i] = next
+			continue
+		}
 
 		switch current {
 		case VegetationNone:
@@ -200,6 +210,263 @@ func (w *World) Step() {
 
 	w.updateMetrics(w.vegNext)
 	w.vegCurr, w.vegNext = w.vegNext, w.vegCurr
+}
+
+func (w *World) applyFire() {
+	total := w.w * w.h
+	if total == 0 || len(w.burnTTL) != total || len(w.burnNext) != total {
+		return
+	}
+
+	for i := range w.burnNext {
+		w.burnNext[i] = 0
+	}
+
+	baseTTL := w.cfg.Params.BurnTTL
+	if baseTTL <= 0 {
+		baseTTL = 1
+	}
+	spreadChance := w.cfg.Params.FireSpreadChance
+	if spreadChance < 0 {
+		spreadChance = 0
+	}
+	rainDampen := w.cfg.Params.FireRainSpreadDampen
+	rainExtinguish := w.cfg.Params.FireRainExtinguishChance
+	lavaIgnite := w.cfg.Params.FireLavaIgniteChance
+	if lavaIgnite < 0 {
+		lavaIgnite = 0
+	}
+
+	rainModifier := func(value float64) float64 {
+		if rainDampen <= 0 || value <= 0 {
+			return 1
+		}
+		modifier := 1 - rainDampen*value
+		if modifier < 0 {
+			return 0
+		}
+		if modifier > 1 {
+			return 1
+		}
+		return modifier
+	}
+
+	for y := 0; y < w.h; y++ {
+		for x := 0; x < w.w; x++ {
+			idx := y*w.w + x
+			ttl := int(w.burnTTL[idx])
+			if ttl <= 0 {
+				continue
+			}
+
+			rainHere := 0.0
+			if idx < len(w.rainCurr) {
+				rainHere = float64(w.rainCurr[idx])
+			}
+
+			extinguished := false
+			if rainExtinguish > 0 && rainHere > 0 {
+				chance := rainExtinguish * rainHere
+				if chance < 0 {
+					chance = 0
+				}
+				if chance > 1 {
+					chance = 1
+				}
+				if w.rng.Float64() < chance {
+					extinguished = true
+				}
+			}
+
+			newTTL := ttl - 1
+			if newTTL < 0 {
+				newTTL = 0
+			}
+			if extinguished {
+				newTTL = 0
+			}
+
+			if newTTL > 0 {
+				if newTTL > 255 {
+					newTTL = 255
+				}
+				w.burnNext[idx] = uint8(newTTL)
+				if idx < len(w.display) {
+					w.display[idx] = 1
+				}
+			} else {
+				w.vegCurr[idx] = VegetationNone
+				if idx < len(w.display) {
+					base := uint8(0)
+					if idx < len(w.groundCurr) {
+						base = uint8(w.groundCurr[idx])
+					}
+					w.display[idx] = base
+				}
+			}
+
+			if spreadChance <= 0 {
+				continue
+			}
+
+			for dy := -1; dy <= 1; dy++ {
+				ny := y + dy
+				if ny < 0 || ny >= w.h {
+					continue
+				}
+				for dx := -1; dx <= 1; dx++ {
+					nx := x + dx
+					if nx < 0 || nx >= w.w {
+						continue
+					}
+					if dx == 0 && dy == 0 {
+						continue
+					}
+					nIdx := ny*w.w + nx
+					if w.vegCurr[nIdx] == VegetationNone {
+						continue
+					}
+					if int(w.burnTTL[nIdx]) > 0 {
+						continue
+					}
+
+					chance := spreadChance
+					if nIdx < len(w.rainCurr) {
+						chance *= rainModifier(float64(w.rainCurr[nIdx]))
+					}
+					if chance <= 0 {
+						continue
+					}
+					if chance > 1 {
+						chance = 1
+					}
+					if w.rng.Float64() >= chance {
+						continue
+					}
+
+					ttlVal := baseTTL
+					if ttlVal <= 0 {
+						ttlVal = 1
+					}
+					if existing := int(w.burnNext[nIdx]); existing > ttlVal {
+						ttlVal = existing
+					}
+					if ttlVal > 255 {
+						ttlVal = 255
+					}
+					w.burnNext[nIdx] = uint8(ttlVal)
+					if nIdx < len(w.display) {
+						w.display[nIdx] = 1
+					}
+				}
+			}
+		}
+	}
+
+	if lavaIgnite > 0 {
+		for y := 0; y < w.h; y++ {
+			for x := 0; x < w.w; x++ {
+				idx := y*w.w + x
+				if idx < 0 || idx >= len(w.groundCurr) {
+					continue
+				}
+				if w.groundCurr[idx] != GroundLava {
+					continue
+				}
+				if idx < len(w.lavaLife) && w.lavaLife[idx] == 0 {
+					continue
+				}
+
+				for dy := -1; dy <= 1; dy++ {
+					ny := y + dy
+					if ny < 0 || ny >= w.h {
+						continue
+					}
+					for dx := -1; dx <= 1; dx++ {
+						nx := x + dx
+						if nx < 0 || nx >= w.w {
+							continue
+						}
+						if dx == 0 && dy == 0 {
+							continue
+						}
+						nIdx := ny*w.w + nx
+						if nIdx < 0 || nIdx >= len(w.vegCurr) {
+							continue
+						}
+						if w.vegCurr[nIdx] == VegetationNone {
+							continue
+						}
+						if int(w.burnTTL[nIdx]) > 0 {
+							continue
+						}
+						if nIdx < len(w.burnNext) && int(w.burnNext[nIdx]) > 0 {
+							continue
+						}
+
+						chance := lavaIgnite
+						if nIdx < len(w.rainCurr) {
+							chance *= rainModifier(float64(w.rainCurr[nIdx]))
+						}
+						if chance <= 0 {
+							continue
+						}
+						if chance > 1 {
+							chance = 1
+						}
+						if w.rng.Float64() >= chance {
+							continue
+						}
+
+						ttlVal := baseTTL
+						if ttlVal <= 0 {
+							ttlVal = 1
+						}
+						if ttlVal > 255 {
+							ttlVal = 255
+						}
+						if nIdx < len(w.burnNext) {
+							w.burnNext[nIdx] = uint8(ttlVal)
+						}
+						if nIdx < len(w.display) {
+							w.display[nIdx] = 1
+						}
+					}
+				}
+			}
+		}
+	}
+
+	w.burnTTL, w.burnNext = w.burnNext, w.burnTTL
+}
+
+// IgniteAt manually starts a burn at the provided coordinates when vegetation is present.
+func (w *World) IgniteAt(x, y int) {
+	if x < 0 || y < 0 || x >= w.w || y >= w.h {
+		return
+	}
+	idx := y*w.w + x
+	if idx < 0 || idx >= len(w.vegCurr) {
+		return
+	}
+	if w.vegCurr[idx] == VegetationNone {
+		return
+	}
+	base := w.cfg.Params.BurnTTL
+	if base <= 0 {
+		base = 1
+	}
+	ttl := base
+	if existing := int(w.burnTTL[idx]); existing > 0 {
+		ttl += existing
+	}
+	if ttl > 255 {
+		ttl = 255
+	}
+	w.burnTTL[idx] = uint8(ttl)
+	if idx < len(w.display) {
+		w.display[idx] = 1
+	}
 }
 
 // Metrics exposes the latest vegetation telemetry.
