@@ -2,7 +2,7 @@
 
 ## Phase 1 — Model & Config Wiring
 
-**Status:** Not started.
+**Status:** Complete — deterministic world scaffolding in place and rain/volcano mask overlays renderable via debug toggles (`1` rain, `2` volcano). Ready to begin vegetation dynamics work.
 
 **Goal:** Represent the world state and parameters, no behavior yet.
 
