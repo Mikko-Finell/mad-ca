@@ -83,3 +83,84 @@ func TestResetDeterministic(t *testing.T) {
 		t.Fatal("different seeds should produce different initial ground states")
 	}
 }
+
+func TestVegetationSpreadFromSeed(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Width = 4
+	cfg.Height = 4
+	cfg.Seed = 2024
+	cfg.Params.GrassPatchCount = 0
+	cfg.Params.GrassSpreadChance = 1
+	cfg.Params.GrassNeighborThreshold = 1
+	cfg.Params.ShrubGrowthChance = 0
+	cfg.Params.TreeGrowthChance = 0
+
+	world := NewWithConfig(cfg)
+	world.Reset(0)
+
+	// Seed a single grass tile in the center.
+	idx := 5 // (1,1)
+	world.vegCurr[idx] = VegetationGrass
+	copy(world.vegNext, world.vegCurr)
+
+	world.Step()
+
+	// Adjacent dirt tiles should have become grass.
+	expectedGrass := []int{0, 1, 2, 4, 6, 8, 9, 10}
+	for _, pos := range expectedGrass {
+		if world.vegCurr[pos] != VegetationGrass {
+			t.Fatalf("expected vegetation at %d to spread to grass, got %v", pos, world.vegCurr[pos])
+		}
+	}
+}
+
+func TestVegetationSuccessionDeterministic(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Width = 4
+	cfg.Height = 4
+	cfg.Seed = 77
+	cfg.Params.GrassPatchCount = 0
+	cfg.Params.GrassSpreadChance = 1
+	cfg.Params.ShrubGrowthChance = 1
+	cfg.Params.TreeGrowthChance = 1
+
+	worldA := NewWithConfig(cfg)
+	worldA.Reset(0)
+
+	// Build deterministic starting layout.
+	layout := map[int]Vegetation{
+		1:  VegetationGrass,
+		4:  VegetationGrass,
+		5:  VegetationGrass,
+		6:  VegetationGrass,
+		9:  VegetationShrub,
+		10: VegetationShrub,
+		11: VegetationShrub,
+		14: VegetationShrub,
+	}
+	for idx, v := range layout {
+		worldA.vegCurr[idx] = v
+	}
+	copy(worldA.vegNext, worldA.vegCurr)
+
+	worldB := NewWithConfig(cfg)
+	worldB.Reset(0)
+	for idx, v := range layout {
+		worldB.vegCurr[idx] = v
+	}
+	copy(worldB.vegNext, worldB.vegCurr)
+
+	worldA.Step()
+	worldB.Step()
+
+	if !slices.Equal(worldA.vegCurr, worldB.vegCurr) {
+		t.Fatal("vegetation succession diverged for identical seeds")
+	}
+
+	if worldA.vegCurr[5] != VegetationShrub {
+		t.Fatalf("expected tile 5 to advance to shrub, got %v", worldA.vegCurr[5])
+	}
+	if worldA.vegCurr[10] != VegetationTree {
+		t.Fatalf("expected tile 10 to advance to tree, got %v", worldA.vegCurr[10])
+	}
+}
