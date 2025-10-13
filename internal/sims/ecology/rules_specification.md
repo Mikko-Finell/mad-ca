@@ -65,7 +65,7 @@ Each tick, events rasterize into their masks; when `ttl==0` they expire.
 ### 4.2 Rain Regions
 
 * Spawn a few simultaneous rain regions (`≤8` typical).
-* Radius 8–24 tiles, lifetime 8–20 ticks, gaussian falloff.
+* Radius 8–24 tiles, lifetime 9–18 ticks, gaussian falloff.
 
 **Effects (sample R = RainMask[x,y]):**
 
