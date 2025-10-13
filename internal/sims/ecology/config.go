@@ -10,9 +10,10 @@ type Params struct {
 	GrassPatchRadiusMax int
 	GrassPatchDensity   float64
 
-	LavaLifeMin int
-	LavaLifeMax int
-	BurnTTL     int
+	LavaLifeMin      int
+	LavaLifeMax      int
+	LavaSpreadChance float64
+	BurnTTL          int
 
 	FireSpreadChance         float64
 	FireLavaIgniteChance     float64
@@ -51,6 +52,7 @@ func DefaultConfig() Config {
 			GrassPatchDensity:        0.6,
 			LavaLifeMin:              12,
 			LavaLifeMax:              32,
+			LavaSpreadChance:         0.08,
 			BurnTTL:                  3,
 			FireSpreadChance:         0.25,
 			FireLavaIgniteChance:     0.8,
@@ -127,6 +129,11 @@ func FromMap(cfg map[string]string) Config {
 	}
 	if c.Params.LavaLifeMax < c.Params.LavaLifeMin {
 		c.Params.LavaLifeMax = c.Params.LavaLifeMin
+	}
+	if v, ok := cfg["lava_spread_chance"]; ok {
+		if parsed, err := strconv.ParseFloat(v, 64); err == nil && parsed >= 0 {
+			c.Params.LavaSpreadChance = parsed
+		}
 	}
 	if v, ok := cfg["burn_ttl"]; ok {
 		if parsed, err := strconv.Atoi(v); err == nil && parsed >= 0 {

@@ -38,6 +38,7 @@ type World struct {
 	vegCurr    []Vegetation
 	vegNext    []Vegetation
 	lavaLife   []uint8
+	lavaNext   []uint8
 	burnTTL    []uint8
 	burnNext   []uint8
 	rainCurr   []float32
@@ -88,6 +89,7 @@ func NewWithConfig(cfg Config) *World {
 		vegCurr:    make([]Vegetation, total),
 		vegNext:    make([]Vegetation, total),
 		lavaLife:   make([]uint8, total),
+		lavaNext:   make([]uint8, total),
 		burnTTL:    make([]uint8, total),
 		burnNext:   make([]uint8, total),
 		rainCurr:   make([]float32, total),
@@ -142,6 +144,7 @@ func (w *World) Reset(seed int64) {
 		w.vegCurr[i] = VegetationNone
 		w.vegNext[i] = VegetationNone
 		w.lavaLife[i] = 0
+		w.lavaNext[i] = 0
 		w.burnTTL[i] = 0
 		w.burnNext[i] = 0
 		w.rainCurr[i] = 0
@@ -166,6 +169,7 @@ func (w *World) Step() {
 		return
 	}
 
+	w.applyLava()
 	w.applyFire()
 
 	grassNeighbors, shrubNeighbors := w.mooreNeighborCounts()
@@ -210,6 +214,134 @@ func (w *World) Step() {
 
 	w.updateMetrics(w.vegNext)
 	w.vegCurr, w.vegNext = w.vegNext, w.vegCurr
+}
+
+func (w *World) applyLava() {
+	total := w.w * w.h
+	if total == 0 {
+		return
+	}
+	if len(w.groundCurr) != total || len(w.groundNext) != total {
+		return
+	}
+	if len(w.lavaLife) != total || len(w.lavaNext) != total {
+		return
+	}
+
+	for i := 0; i < total; i++ {
+		w.groundNext[i] = w.groundCurr[i]
+		w.lavaNext[i] = 0
+	}
+
+	spreadChance := w.cfg.Params.LavaSpreadChance
+	if spreadChance < 0 {
+		spreadChance = 0
+	}
+	if spreadChance > 1 {
+		spreadChance = 1
+	}
+
+	minLife := w.cfg.Params.LavaLifeMin
+	maxLife := w.cfg.Params.LavaLifeMax
+	if minLife <= 0 {
+		minLife = 1
+	}
+	if maxLife < minLife {
+		maxLife = minLife
+	}
+
+	for y := 0; y < w.h; y++ {
+		for x := 0; x < w.w; x++ {
+			idx := y*w.w + x
+			if w.groundCurr[idx] != GroundLava {
+				continue
+			}
+
+			life := int(w.lavaLife[idx]) - 1
+			if life > 0 {
+				if life > 255 {
+					life = 255
+				}
+				w.groundNext[idx] = GroundLava
+				w.lavaNext[idx] = uint8(life)
+				if idx < len(w.display) {
+					w.display[idx] = uint8(GroundLava)
+				}
+			} else {
+				w.groundNext[idx] = GroundRock
+				w.lavaNext[idx] = 0
+				if idx < len(w.display) {
+					w.display[idx] = uint8(GroundRock)
+				}
+			}
+
+			if spreadChance <= 0 {
+				continue
+			}
+
+			for dy := -1; dy <= 1; dy++ {
+				ny := y + dy
+				if ny < 0 || ny >= w.h {
+					continue
+				}
+				for dx := -1; dx <= 1; dx++ {
+					nx := x + dx
+					if nx < 0 || nx >= w.w {
+						continue
+					}
+					if dx == 0 && dy == 0 {
+						continue
+					}
+					nIdx := ny*w.w + nx
+					if w.groundCurr[nIdx] == GroundLava {
+						continue
+					}
+					ground := w.groundCurr[nIdx]
+					if ground != GroundDirt && ground != GroundRock {
+						continue
+					}
+					if w.rng.Float64() >= spreadChance {
+						continue
+					}
+
+					lifeVal := minLife
+					if maxLife > minLife {
+						lifeVal += w.rng.Intn(maxLife - minLife + 1)
+					}
+					if lifeVal < 1 {
+						lifeVal = 1
+					}
+					if lifeVal > 255 {
+						lifeVal = 255
+					}
+					if existing := int(w.lavaNext[nIdx]); existing > lifeVal {
+						lifeVal = existing
+					}
+
+					w.groundNext[nIdx] = GroundLava
+					w.lavaNext[nIdx] = uint8(lifeVal)
+					if nIdx < len(w.display) {
+						w.display[nIdx] = uint8(GroundLava)
+					}
+					if nIdx < len(w.vegCurr) {
+						w.vegCurr[nIdx] = VegetationNone
+					}
+					if nIdx < len(w.vegNext) {
+						w.vegNext[nIdx] = VegetationNone
+					}
+					if nIdx < len(w.burnTTL) {
+						w.burnTTL[nIdx] = 0
+					}
+					if nIdx < len(w.burnNext) {
+						w.burnNext[nIdx] = 0
+					}
+				}
+			}
+		}
+	}
+
+	w.groundCurr, w.groundNext = w.groundNext, w.groundCurr
+	w.lavaLife, w.lavaNext = w.lavaNext, w.lavaLife
 }
 
 func (w *World) applyFire() {
