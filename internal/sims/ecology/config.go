@@ -26,6 +26,17 @@ type Params struct {
 	ShrubGrowthChance      float64
 	TreeNeighborThreshold  int
 	TreeGrowthChance       float64
+
+	VolcanoProtoMaxRegions        int
+	VolcanoProtoSpawnChance       float64
+	VolcanoProtoTectonicThreshold float64
+	VolcanoProtoRadiusMin         int
+	VolcanoProtoRadiusMax         int
+	VolcanoProtoTTLMin            int
+	VolcanoProtoTTLMax            int
+	VolcanoProtoStrengthMin       float64
+	VolcanoProtoStrengthMax       float64
+	VolcanoUpliftChanceBase       float64
 }
 
 // Config controls the Ecology simulation dimensions.
@@ -45,25 +56,35 @@ func DefaultConfig() Config {
 		Height: 256,
 		Seed:   1337,
 		Params: Params{
-			RockChance:               0.05,
-			GrassPatchCount:          12,
-			GrassPatchRadiusMin:      2,
-			GrassPatchRadiusMax:      5,
-			GrassPatchDensity:        0.6,
-			LavaLifeMin:              12,
-			LavaLifeMax:              32,
-			LavaSpreadChance:         0.08,
-			BurnTTL:                  3,
-			FireSpreadChance:         0.25,
-			FireLavaIgniteChance:     0.8,
-			FireRainSpreadDampen:     0.75,
-			FireRainExtinguishChance: 0.5,
-			GrassNeighborThreshold:   1,
-			GrassSpreadChance:        0.25,
-			ShrubNeighborThreshold:   3,
-			ShrubGrowthChance:        0.04,
-			TreeNeighborThreshold:    3,
-			TreeGrowthChance:         0.02,
+			RockChance:                    0.05,
+			GrassPatchCount:               12,
+			GrassPatchRadiusMin:           2,
+			GrassPatchRadiusMax:           5,
+			GrassPatchDensity:             0.6,
+			LavaLifeMin:                   12,
+			LavaLifeMax:                   32,
+			LavaSpreadChance:              0.08,
+			BurnTTL:                       3,
+			FireSpreadChance:              0.25,
+			FireLavaIgniteChance:          0.8,
+			FireRainSpreadDampen:          0.75,
+			FireRainExtinguishChance:      0.5,
+			GrassNeighborThreshold:        1,
+			GrassSpreadChance:             0.25,
+			ShrubNeighborThreshold:        3,
+			ShrubGrowthChance:             0.04,
+			TreeNeighborThreshold:         3,
+			TreeGrowthChance:              0.02,
+			VolcanoProtoMaxRegions:        6,
+			VolcanoProtoSpawnChance:       0.02,
+			VolcanoProtoTectonicThreshold: 0.6,
+			VolcanoProtoRadiusMin:         10,
+			VolcanoProtoRadiusMax:         22,
+			VolcanoProtoTTLMin:            10,
+			VolcanoProtoTTLMax:            25,
+			VolcanoProtoStrengthMin:       0.4,
+			VolcanoProtoStrengthMax:       0.9,
+			VolcanoUpliftChanceBase:       0.00002,
 		},
 	}
 }
@@ -188,6 +209,65 @@ func FromMap(cfg map[string]string) Config {
 	if v, ok := cfg["tree_growth_chance"]; ok {
 		if parsed, err := strconv.ParseFloat(v, 64); err == nil && parsed >= 0 {
 			c.Params.TreeGrowthChance = parsed
+		}
+	}
+	if v, ok := cfg["volcano_proto_max_regions"]; ok {
+		if parsed, err := strconv.Atoi(v); err == nil && parsed >= 0 {
+			c.Params.VolcanoProtoMaxRegions = parsed
+		}
+	}
+	if v, ok := cfg["volcano_proto_spawn_chance"]; ok {
+		if parsed, err := strconv.ParseFloat(v, 64); err == nil && parsed >= 0 {
+			c.Params.VolcanoProtoSpawnChance = parsed
+		}
+	}
+	if v, ok := cfg["volcano_proto_tectonic_threshold"]; ok {
+		if parsed, err := strconv.ParseFloat(v, 64); err == nil {
+			c.Params.VolcanoProtoTectonicThreshold = parsed
+		}
+	}
+	if v, ok := cfg["volcano_proto_radius_min"]; ok {
+		if parsed, err := strconv.Atoi(v); err == nil && parsed >= 0 {
+			c.Params.VolcanoProtoRadiusMin = parsed
+		}
+	}
+	if v, ok := cfg["volcano_proto_radius_max"]; ok {
+		if parsed, err := strconv.Atoi(v); err == nil && parsed >= 0 {
+			c.Params.VolcanoProtoRadiusMax = parsed
+		}
+	}
+	if c.Params.VolcanoProtoRadiusMax < c.Params.VolcanoProtoRadiusMin {
+		c.Params.VolcanoProtoRadiusMax = c.Params.VolcanoProtoRadiusMin
+	}
+	if v, ok := cfg["volcano_proto_ttl_min"]; ok {
+		if parsed, err := strconv.Atoi(v); err == nil && parsed >= 0 {
+			c.Params.VolcanoProtoTTLMin = parsed
+		}
+	}
+	if v, ok := cfg["volcano_proto_ttl_max"]; ok {
+		if parsed, err := strconv.Atoi(v); err == nil && parsed >= 0 {
+			c.Params.VolcanoProtoTTLMax = parsed
+		}
+	}
+	if c.Params.VolcanoProtoTTLMax < c.Params.VolcanoProtoTTLMin {
+		c.Params.VolcanoProtoTTLMax = c.Params.VolcanoProtoTTLMin
+	}
+	if v, ok := cfg["volcano_proto_strength_min"]; ok {
+		if parsed, err := strconv.ParseFloat(v, 64); err == nil {
+			c.Params.VolcanoProtoStrengthMin = parsed
+		}
+	}
+	if v, ok := cfg["volcano_proto_strength_max"]; ok {
+		if parsed, err := strconv.ParseFloat(v, 64); err == nil {
+			c.Params.VolcanoProtoStrengthMax = parsed
+		}
+	}
+	if c.Params.VolcanoProtoStrengthMax < c.Params.VolcanoProtoStrengthMin {
+		c.Params.VolcanoProtoStrengthMax = c.Params.VolcanoProtoStrengthMin
+	}
+	if v, ok := cfg["volcano_uplift_chance_base"]; ok {
+		if parsed, err := strconv.ParseFloat(v, 64); err == nil && parsed >= 0 {
+			c.Params.VolcanoUpliftChanceBase = parsed
 		}
 	}
 	return c

@@ -51,6 +51,9 @@ type World struct {
 	rng *rand.Rand
 
 	metrics VegetationMetrics
+
+	volcanoRegions       []volcanoProtoRegion
+	expiredVolcanoProtos []volcanoProtoRegion
 }
 
 // VegetationMetrics captures aggregate vegetation telemetry for the current tick.
@@ -64,6 +67,14 @@ type VegetationMetrics struct {
 	// ClusterHistogram stores the count of Moore-connected components by size.
 	// Index represents the component size; index 0 is unused.
 	ClusterHistogram []int
+}
+
+type volcanoProtoRegion struct {
+	cx, cy   float64
+	radius   float64
+	strength float64
+	ttl      int
+	noise    int64
 }
 
 // New returns an Ecology simulation with the provided dimensions using defaults.
@@ -161,6 +172,9 @@ func (w *World) Reset(seed int64) {
 
 	w.metrics = VegetationMetrics{}
 	w.updateMetrics(w.vegCurr)
+
+	w.volcanoRegions = w.volcanoRegions[:0]
+	w.expiredVolcanoProtos = w.expiredVolcanoProtos[:0]
 }
 
 // Step advances the simulation by applying the vegetation succession rules once.
@@ -169,6 +183,8 @@ func (w *World) Step() {
 		return
 	}
 
+	w.updateVolcanoMask()
+	w.applyUplift()
 	w.applyLava()
 	w.applyFire()
 
@@ -214,6 +230,259 @@ func (w *World) Step() {
 
 	w.updateMetrics(w.vegNext)
 	w.vegCurr, w.vegNext = w.vegNext, w.vegCurr
+
+	w.spawnVolcanoProtoRegion()
+}
+
+func (w *World) updateVolcanoMask() {
+	total := w.w * w.h
+	if total == 0 || len(w.volCurr) != total || len(w.volNext) != total {
+		return
+	}
+
+	for i := range w.volNext {
+		w.volNext[i] = 0
+	}
+
+	w.expiredVolcanoProtos = w.expiredVolcanoProtos[:0]
+
+	nextRegions := w.volcanoRegions[:0]
+	for i := range w.volcanoRegions {
+		region := w.volcanoRegions[i]
+		if region.ttl <= 0 {
+			w.expiredVolcanoProtos = append(w.expiredVolcanoProtos, region)
+			continue
+		}
+		w.rasterizeVolcanoRegion(region)
+		region.ttl--
+		if region.ttl > 0 {
+			nextRegions = append(nextRegions, region)
+		} else {
+			w.expiredVolcanoProtos = append(w.expiredVolcanoProtos, region)
+		}
+	}
+
+	w.volcanoRegions = nextRegions
+	w.volCurr, w.volNext = w.volNext, w.volCurr
+}
+
+func (w *World) rasterizeVolcanoRegion(region volcanoProtoRegion) {
+	if region.radius <= 0 {
+		return
+	}
+
+	minX := int(math.Floor(region.cx - region.radius))
+	maxX := int(math.Ceil(region.cx + region.radius))
+	minY := int(math.Floor(region.cy - region.radius))
+	maxY := int(math.Ceil(region.cy + region.radius))
+
+	if minX < 0 {
+		minX = 0
+	}
+	if minY < 0 {
+		minY = 0
+	}
+	if maxX >= w.w {
+		maxX = w.w - 1
+	}
+	if maxY >= w.h {
+		maxY = w.h - 1
+	}
+
+	radius := region.radius
+	invRadius := 1.0 / radius
+
+	for y := minY; y <= maxY; y++ {
+		cy := float64(y) + 0.5
+		for x := minX; x <= maxX; x++ {
+			cx := float64(x) + 0.5
+			dx := cx - region.cx
+			dy := cy - region.cy
+			dist := math.Sqrt(dx*dx + dy*dy)
+			if dist > radius {
+				continue
+			}
+			value := region.strength * (1 - dist*invRadius)
+			if value <= 0 {
+				continue
+			}
+			if value > 1 {
+				value = 1
+			}
+			idx := y*w.w + x
+			if idx < 0 || idx >= len(w.volNext) {
+				continue
+			}
+			if current := w.volNext[idx]; current >= float32(value) {
+				continue
+			}
+			w.volNext[idx] = float32(value)
+		}
+	}
+}
+
+func (w *World) applyUplift() {
+	total := w.w * w.h
+	if total == 0 || len(w.groundCurr) != total || len(w.groundNext) != total {
+		return
+	}
+
+	for i := 0; i < total; i++ {
+		w.groundNext[i] = w.groundCurr[i]
+	}
+
+	baseChance := w.cfg.Params.VolcanoUpliftChanceBase
+	if baseChance <= 0 {
+		w.groundCurr, w.groundNext = w.groundNext, w.groundCurr
+		return
+	}
+
+	for i := 0; i < total; i++ {
+		if w.groundCurr[i] != GroundRock {
+			continue
+		}
+		if i >= len(w.volCurr) {
+			continue
+		}
+		mask := float64(w.volCurr[i])
+		if mask <= 0 {
+			continue
+		}
+		chance := baseChance * mask
+		if chance > 1 {
+			chance = 1
+		}
+		if chance <= 0 {
+			continue
+		}
+		if w.rng.Float64() >= chance {
+			continue
+		}
+		w.groundNext[i] = GroundMountain
+		if i < len(w.display) {
+			w.display[i] = uint8(GroundMountain)
+		}
+	}
+
+	w.groundCurr, w.groundNext = w.groundNext, w.groundCurr
+}
+
+func (w *World) spawnVolcanoProtoRegion() {
+	params := w.cfg.Params
+	maxRegions := params.VolcanoProtoMaxRegions
+	if maxRegions <= 0 {
+		return
+	}
+	if len(w.volcanoRegions) >= maxRegions {
+		return
+	}
+	if params.VolcanoProtoSpawnChance <= 0 {
+		return
+	}
+	if w.rng.Float64() >= params.VolcanoProtoSpawnChance {
+		return
+	}
+
+	total := w.w * w.h
+	if total == 0 || len(w.tectonic) != total {
+		return
+	}
+
+	attempts := 8
+	bestIdx := -1
+	bestScore := -1.0
+	threshold := params.VolcanoProtoTectonicThreshold
+	if threshold < 0 {
+		threshold = 0
+	}
+
+	for i := 0; i < attempts; i++ {
+		idx := w.rng.Intn(total)
+		score := float64(w.tectonic[idx]) + w.rng.Float64()*0.05
+		if score > bestScore {
+			bestScore = score
+			bestIdx = idx
+		}
+	}
+
+	if bestIdx < 0 {
+		return
+	}
+
+	baseValue := float64(w.tectonic[bestIdx])
+	if baseValue < threshold {
+		return
+	}
+
+	radiusMin := params.VolcanoProtoRadiusMin
+	radiusMax := params.VolcanoProtoRadiusMax
+	if radiusMin <= 0 {
+		radiusMin = 1
+	}
+	if radiusMax < radiusMin {
+		radiusMax = radiusMin
+	}
+	radius := radiusMin
+	if radiusMax > radiusMin {
+		radius += w.rng.Intn(radiusMax - radiusMin + 1)
+	}
+
+	ttlMin := params.VolcanoProtoTTLMin
+	ttlMax := params.VolcanoProtoTTLMax
+	if ttlMin <= 0 {
+		ttlMin = 1
+	}
+	if ttlMax < ttlMin {
+		ttlMax = ttlMin
+	}
+	ttl := ttlMin
+	if ttlMax > ttlMin {
+		ttl += w.rng.Intn(ttlMax - ttlMin + 1)
+	}
+
+	strengthMin := params.VolcanoProtoStrengthMin
+	strengthMax := params.VolcanoProtoStrengthMax
+	if strengthMin < 0 {
+		strengthMin = 0
+	}
+	if strengthMax < strengthMin {
+		strengthMax = strengthMin
+	}
+	strength := strengthMin
+	if strengthMax > strengthMin {
+		strength += w.rng.Float64() * (strengthMax - strengthMin)
+	}
+	if strength > 1 {
+		strength = 1
+	}
+
+	jitter := func() float64 {
+		return w.rng.Float64() - 0.5
+	}
+
+	cx := float64(bestIdx%w.w) + 0.5 + jitter()
+	cy := float64(bestIdx/w.w) + 0.5 + jitter()
+	if cx < 0 {
+		cx = 0
+	}
+	if cy < 0 {
+		cy = 0
+	}
+	if cx > float64(w.w) {
+		cx = float64(w.w)
+	}
+	if cy > float64(w.h) {
+		cy = float64(w.h)
+	}
+
+	w.volcanoRegions = append(w.volcanoRegions, volcanoProtoRegion{
+		cx:       cx,
+		cy:       cy,
+		radius:   float64(radius),
+		strength: strength,
+		ttl:      ttl,
+		noise:    w.rng.Int63(),
+	})
 }
 
 func (w *World) applyLava() {

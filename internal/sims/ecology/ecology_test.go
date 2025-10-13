@@ -1,6 +1,7 @@
 package ecology
 
 import (
+	"math"
 	"slices"
 	"testing"
 )
@@ -81,6 +82,125 @@ func TestResetDeterministic(t *testing.T) {
 
 	if slices.Equal(initialGround, seedGround) {
 		t.Fatal("different seeds should produce different initial ground states")
+	}
+}
+
+func TestUpdateVolcanoMaskRasterizesAndExpires(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Width = 8
+	cfg.Height = 8
+	cfg.Params.VolcanoProtoSpawnChance = 0
+
+	world := NewWithConfig(cfg)
+	world.Reset(0)
+
+	world.volcanoRegions = []volcanoProtoRegion{{
+		cx:       3.5,
+		cy:       3.5,
+		radius:   3,
+		strength: 1,
+		ttl:      2,
+	}}
+
+	world.updateVolcanoMask()
+
+	if got := world.volCurr[3*world.w+3]; got <= 0 {
+		t.Fatalf("expected mask center to be positive, got %f", got)
+	}
+
+	if len(world.volcanoRegions) != 1 {
+		t.Fatalf("expected region to remain active with ttl>0, got %d", len(world.volcanoRegions))
+	}
+
+	world.updateVolcanoMask()
+
+	if len(world.volcanoRegions) != 0 {
+		t.Fatalf("expected region to expire, got %d active", len(world.volcanoRegions))
+	}
+
+	if len(world.expiredVolcanoProtos) == 0 {
+		t.Fatal("expected expired region to be tracked")
+	}
+
+	world.updateVolcanoMask()
+
+	if got := world.volCurr[3*world.w+3]; got != 0 {
+		t.Fatalf("expected mask to clear after expiration tick, got %f", got)
+	}
+}
+
+func TestApplyUpliftConvertsRockUnderMask(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Width = 3
+	cfg.Height = 1
+	cfg.Params.VolcanoUpliftChanceBase = 1
+	cfg.Params.VolcanoProtoSpawnChance = 0
+
+	world := NewWithConfig(cfg)
+	world.Reset(0)
+
+	for i := range world.groundCurr {
+		world.groundCurr[i] = GroundRock
+	}
+	copy(world.groundNext, world.groundCurr)
+
+	for i := range world.volCurr {
+		world.volCurr[i] = 1
+	}
+
+	world.applyUplift()
+
+	for i, v := range world.groundCurr {
+		if v != GroundMountain {
+			t.Fatalf("expected uplift to convert tile %d to mountain, got %v", i, v)
+		}
+	}
+}
+
+func TestSpawnVolcanoProtoRespectsTectonicThreshold(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Width = 1
+	cfg.Height = 1
+	cfg.Params.VolcanoProtoSpawnChance = 1
+	cfg.Params.VolcanoProtoMaxRegions = 2
+	cfg.Params.VolcanoProtoTectonicThreshold = 0.9
+	cfg.Params.VolcanoProtoRadiusMin = 5
+	cfg.Params.VolcanoProtoRadiusMax = 5
+	cfg.Params.VolcanoProtoTTLMin = 3
+	cfg.Params.VolcanoProtoTTLMax = 3
+	cfg.Params.VolcanoProtoStrengthMin = 1
+	cfg.Params.VolcanoProtoStrengthMax = 1
+
+	world := NewWithConfig(cfg)
+	world.Reset(0)
+	world.rng.Seed(12345)
+
+	for i := range world.tectonic {
+		world.tectonic[i] = 0
+	}
+
+	world.spawnVolcanoProtoRegion()
+
+	if len(world.volcanoRegions) != 0 {
+		t.Fatalf("expected no spawn when tectonic below threshold, got %d", len(world.volcanoRegions))
+	}
+
+	world.tectonic[0] = 1
+	world.spawnVolcanoProtoRegion()
+
+	if len(world.volcanoRegions) != 1 {
+		t.Fatalf("expected spawn after threshold satisfied, got %d", len(world.volcanoRegions))
+	}
+
+	region := world.volcanoRegions[0]
+	if region.ttl != cfg.Params.VolcanoProtoTTLMin {
+		t.Fatalf("expected ttl %d, got %d", cfg.Params.VolcanoProtoTTLMin, region.ttl)
+	}
+	if math.Abs(region.radius-float64(cfg.Params.VolcanoProtoRadiusMin)) > 1e-6 {
+		t.Fatalf("expected radius %d, got %f", cfg.Params.VolcanoProtoRadiusMin, region.radius)
+	}
+	if region.strength != cfg.Params.VolcanoProtoStrengthMin {
+		t.Fatalf("expected strength %f, got %f", cfg.Params.VolcanoProtoStrengthMin, region.strength)
 	}
 }
 

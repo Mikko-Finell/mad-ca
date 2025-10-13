@@ -88,17 +88,17 @@
 
 ## Phase 4 — Tectonics, Volcano Proto, Lava
 
-**Status:** Not started.
+**Status:** In progress — proto-volcano region spawner, mask rasterization, and uplift conversion from rock to mountain are now active each tick.
 
 **Goal:** Geological engine: uplift, eruptions, lava spread/cool.
 
 **Scope**
 
-* **Region events framework:** list of active regions (center, radius, falloff, ttl, noise seed); per-tick rasterization to `VolcanoMask`.
-* **Proto-volcano uplift:** Rock→Mountain with chance scaled by `VolcanoMask * P_uplift_base`.
+* **Region events framework:** list of active regions (center, radius, falloff, ttl, noise seed); per-tick rasterization to `VolcanoMask`. *(Volcano protoregion list implemented with linear falloff masks; expirations tracked for future eruption handling.)*
+* **Proto-volcano uplift:** Rock→Mountain with chance scaled by `VolcanoMask * P_uplift_base`. *(Implemented — uplift now occurs after mask build.)*
 * **Eruption on expiry:** chance `P_erupt_base * mean(VolcanoMask in region)`; write core lava, rim mountains, occasional lava specks.
 * **Lava:** spread to Dirt/Rock with `P_lava_spread_edge`, per-cell `lava_life` countdown → Lava→Rock on zero.
-* keep order: build masks → uplift/erupt → lava spread/cool → fire → vegetation.
+* keep order: build masks → uplift/erupt → lava spread/cool → fire → vegetation. *(Tick now builds volcano masks before uplifting and the existing lava/fire/vegetation phases.)*
 
 **Tests & Telemetry**
 
@@ -110,6 +110,10 @@
 
 * Volcano protos form roundish uplift, eruptions produce credible cones/lava fields.
 * Lava cools reliably; no stuck eternal lava without config asking for it.
+
+**Notes:**
+
+* Proto-volcano lifecycle groundwork laid: regions spawn deterministically from tectonic hotspots, paint the volcano mask with smooth falloff, and uplift nearby rock toward mountains while tracking expirations. Next step is to consume expirations for eruption generation and connect lava plumbing.
 
 ---
 
