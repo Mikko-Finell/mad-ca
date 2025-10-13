@@ -30,11 +30,13 @@ type HUD struct {
 	lastHeight int
 	snapshot   core.ParameterSnapshot
 
-	controls     []hudControlState
-	intSetter    core.IntParameterSetter
-	floatSetter  core.FloatParameterSetter
-	panelOffsetX int
-	title        string
+	controls      []hudControlState
+	intSetter     core.IntParameterSetter
+	floatSetter   core.FloatParameterSetter
+	panelOffsetX  int
+	title         string
+	scrollOffset  int
+	contentHeight int
 
 	pixel *ebiten.Image
 }
@@ -103,6 +105,7 @@ func (h *HUD) Draw(screen *ebiten.Image, offsetX int, scale int) {
 		h.lastHeight = height
 	}
 	h.panel.Fill(color.RGBA{R: 16, G: 16, B: 20, A: 255})
+	h.clampScroll()
 	h.drawControls()
 	op := &ebiten.DrawImageOptions{}
 	op.GeoM.Translate(float64(offsetX), 0)
@@ -171,11 +174,21 @@ func (h *HUD) handleInput() {
 	if len(h.controls) == 0 {
 		return
 	}
+	mx, my := ebiten.CursorPosition()
+	withinPanel := mx >= h.panelOffsetX && mx < h.panelOffsetX+h.width
+	if withinPanel {
+		_, wy := ebiten.Wheel()
+		if wy != 0 {
+			delta := int(math.Round(wy * float64(scrollStep)))
+			if delta != 0 {
+				h.scrollBy(-delta)
+			}
+		}
+	}
 	if !inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 		return
 	}
-	mx, my := ebiten.CursorPosition()
-	if mx < h.panelOffsetX {
+	if !withinPanel {
 		return
 	}
 	px := mx - h.panelOffsetX
@@ -184,11 +197,13 @@ func (h *HUD) handleInput() {
 		if !state.hasValue {
 			continue
 		}
-		if pointInRect(px, my, state.minusRect) {
+		minusRect := offsetRect(state.minusRect, 0, -h.scrollOffset)
+		plusRect := offsetRect(state.plusRect, 0, -h.scrollOffset)
+		if pointInRect(px, my, minusRect) {
 			h.applyAdjustment(state, -1)
 			return
 		}
-		if pointInRect(px, my, state.plusRect) {
+		if pointInRect(px, my, plusRect) {
 			h.applyAdjustment(state, 1)
 			return
 		}
@@ -266,9 +281,19 @@ func (h *HUD) drawControls() {
 		text.Draw(h.panel, "No adjustable parameters", face, panelPadding, infoY, color.RGBA{R: 160, G: 160, B: 170, A: 255})
 		return
 	}
+	panelHeight := h.lastHeight
+	if panelHeight == 0 && h.panel != nil {
+		panelHeight = h.panel.Bounds().Dy()
+	}
 	for i := range h.controls {
 		state := &h.controls[i]
-		top := state.top
+		top := state.top - h.scrollOffset
+		if top+lineHeight < controlsTop {
+			continue
+		}
+		if panelHeight > 0 && top >= panelHeight {
+			continue
+		}
 		labelY := top + labelBaseline
 		text.Draw(h.panel, state.control.Label, face, panelPadding, labelY, color.RGBA{R: 220, G: 220, B: 230, A: 255})
 		valueColor := color.RGBA{R: 220, G: 220, B: 230, A: 255}
@@ -278,14 +303,16 @@ func (h *HUD) drawControls() {
 		value := state.value
 		bounds := text.BoundString(face, value)
 		valueWidth := bounds.Dx()
-		valueX := state.minusRect.Min.X - buttonGap - valueWidth
+		minusRect := offsetRect(state.minusRect, 0, -h.scrollOffset)
+		plusRect := offsetRect(state.plusRect, 0, -h.scrollOffset)
+		valueX := minusRect.Min.X - buttonGap - valueWidth
 		valueY := top + valueBaseline
 		text.Draw(h.panel, value, face, valueX, valueY, valueColor)
 
 		minusEnabled := state.hasValue && h.canAdjust(state, -1)
 		plusEnabled := state.hasValue && h.canAdjust(state, 1)
-		h.drawButton(state.minusRect, "-", minusEnabled)
-		h.drawButton(state.plusRect, "+", plusEnabled)
+		h.drawButton(minusRect, "-", minusEnabled)
+		h.drawButton(plusRect, "+", plusEnabled)
 	}
 }
 
@@ -364,8 +391,11 @@ func (h *HUD) drawButton(rect image.Rectangle, label string, enabled bool) {
 
 func (h *HUD) layoutControls() {
 	if len(h.controls) == 0 || h.width <= 0 {
+		h.contentHeight = controlsTop + panelPadding
+		h.clampScroll()
 		return
 	}
+	contentBottom := controlsTop
 	for i := range h.controls {
 		top := controlsTop + i*lineHeight
 		buttonY := top + buttonRowTop
@@ -374,7 +404,12 @@ func (h *HUD) layoutControls() {
 		h.controls[i].top = top
 		h.controls[i].minusRect = minusRect
 		h.controls[i].plusRect = plusRect
+		if bottom := top + lineHeight; bottom > contentBottom {
+			contentBottom = bottom
+		}
 	}
+	h.contentHeight = contentBottom + panelPadding
+	h.clampScroll()
 }
 
 func (h *HUD) formatFloat(ctrl core.ParameterControl, value float64) string {
@@ -415,13 +450,46 @@ type hudControlState struct {
 
 const (
 	panelPadding   = 12
-	lineHeight     = 68
-	buttonSize     = 24
+	lineHeight     = 50
+	buttonSize     = 16
 	buttonGap      = 6
 	headerBaseline = 18
 	labelBaseline  = 24
-	valueBaseline  = 46
-	buttonRowTop   = 32
+	valueBaseline  = 38
+	buttonRowTop   = 28
 	infoSpacing    = 36
 	controlsTop    = panelPadding + headerBaseline + 14
+	scrollStep     = 24
 )
+
+func (h *HUD) scrollBy(delta int) {
+	if delta == 0 {
+		return
+	}
+	h.scrollOffset += delta
+	h.clampScroll()
+}
+
+func (h *HUD) clampScroll() {
+	panelHeight := h.lastHeight
+	if panelHeight <= 0 && h.panel != nil {
+		panelHeight = h.panel.Bounds().Dy()
+	}
+	maxScroll := h.contentHeight - panelHeight
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	if h.scrollOffset < 0 {
+		h.scrollOffset = 0
+	}
+	if h.scrollOffset > maxScroll {
+		h.scrollOffset = maxScroll
+	}
+}
+
+func offsetRect(rect image.Rectangle, dx, dy int) image.Rectangle {
+	if dx == 0 && dy == 0 {
+		return rect
+	}
+	return image.Rect(rect.Min.X+dx, rect.Min.Y+dy, rect.Max.X+dx, rect.Max.Y+dy)
+}
