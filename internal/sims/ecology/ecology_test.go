@@ -204,6 +204,62 @@ func TestSpawnVolcanoProtoRespectsTectonicThreshold(t *testing.T) {
 	}
 }
 
+func TestApplyEruptionsSeedsLavaAndMountains(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Width = 9
+	cfg.Height = 9
+	cfg.Params.GrassPatchCount = 0
+	cfg.Params.VolcanoProtoSpawnChance = 0
+	cfg.Params.VolcanoEruptionChanceBase = 10
+	cfg.Params.LavaLifeMin = 4
+	cfg.Params.LavaLifeMax = 4
+
+	world := NewWithConfig(cfg)
+	world.Reset(0)
+	world.rng.Seed(1)
+
+	for i := range world.groundCurr {
+		world.groundCurr[i] = GroundRock
+		world.display[i] = uint8(GroundRock)
+	}
+
+	world.volcanoRegions = []volcanoProtoRegion{{
+		cx:       4.5,
+		cy:       4.5,
+		radius:   3,
+		strength: 1,
+		ttl:      1,
+	}}
+
+	world.updateVolcanoMask()
+
+	if len(world.expiredVolcanoProtos) != 1 {
+		t.Fatalf("expected expired proto to be tracked, got %d", len(world.expiredVolcanoProtos))
+	}
+
+	world.applyEruptions()
+
+	centerIdx := 4*world.w + 4
+	if world.groundCurr[centerIdx] != GroundLava {
+		t.Fatalf("expected eruption core to produce lava, got %v", world.groundCurr[centerIdx])
+	}
+	if world.lavaLife[centerIdx] != 4 {
+		t.Fatalf("expected lava life of 4, got %d", world.lavaLife[centerIdx])
+	}
+
+	rimIdx := 2*world.w + 4
+	if world.groundCurr[rimIdx] != GroundMountain {
+		t.Fatalf("expected rim uplift to convert to mountain, got %v", world.groundCurr[rimIdx])
+	}
+	if world.lavaLife[rimIdx] != 0 {
+		t.Fatalf("rim tile should not retain lava life, got %d", world.lavaLife[rimIdx])
+	}
+
+	if len(world.expiredVolcanoProtos) != 0 {
+		t.Fatalf("expected eruption consumption to clear expired list, got %d", len(world.expiredVolcanoProtos))
+	}
+}
+
 func TestFireBurnsOutAndClears(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Width = 3
