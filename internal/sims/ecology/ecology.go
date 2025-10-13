@@ -52,6 +52,7 @@ type World struct {
 
 	metrics VegetationMetrics
 
+	rainRegions          []rainRegion
 	volcanoRegions       []volcanoProtoRegion
 	expiredVolcanoProtos []volcanoProtoRegion
 }
@@ -75,6 +76,13 @@ type volcanoProtoRegion struct {
 	strength float64
 	ttl      int
 	noise    int64
+}
+
+type rainRegion struct {
+	cx, cy   float64
+	radius   float64
+	strength float64
+	ttl      int
 }
 
 // New returns an Ecology simulation with the provided dimensions using defaults.
@@ -173,6 +181,7 @@ func (w *World) Reset(seed int64) {
 	w.metrics = VegetationMetrics{}
 	w.updateMetrics(w.vegCurr)
 
+	w.rainRegions = w.rainRegions[:0]
 	w.volcanoRegions = w.volcanoRegions[:0]
 	w.expiredVolcanoProtos = w.expiredVolcanoProtos[:0]
 }
@@ -183,6 +192,7 @@ func (w *World) Step() {
 		return
 	}
 
+	w.updateRainMask()
 	w.updateVolcanoMask()
 	w.applyUplift()
 	w.applyEruptions()
@@ -232,7 +242,187 @@ func (w *World) Step() {
 	w.updateMetrics(w.vegNext)
 	w.vegCurr, w.vegNext = w.vegNext, w.vegCurr
 
+	w.spawnRainRegion()
 	w.spawnVolcanoProtoRegion()
+}
+
+func (w *World) updateRainMask() {
+	total := w.w * w.h
+	if total == 0 || len(w.rainCurr) != total || len(w.rainNext) != total {
+		return
+	}
+
+	for i := range w.rainNext {
+		w.rainNext[i] = 0
+	}
+
+	nextRegions := w.rainRegions[:0]
+	for i := range w.rainRegions {
+		region := w.rainRegions[i]
+		if region.ttl <= 0 {
+			continue
+		}
+		w.rasterizeRainRegion(region)
+		region.ttl--
+		if region.ttl > 0 {
+			nextRegions = append(nextRegions, region)
+		}
+	}
+
+	w.rainRegions = nextRegions
+	w.rainCurr, w.rainNext = w.rainNext, w.rainCurr
+}
+
+func (w *World) rasterizeRainRegion(region rainRegion) {
+	if region.radius <= 0 {
+		return
+	}
+
+	minX := int(math.Floor(region.cx - region.radius))
+	maxX := int(math.Ceil(region.cx + region.radius))
+	minY := int(math.Floor(region.cy - region.radius))
+	maxY := int(math.Ceil(region.cy + region.radius))
+
+	if minX < 0 {
+		minX = 0
+	}
+	if minY < 0 {
+		minY = 0
+	}
+	if maxX >= w.w {
+		maxX = w.w - 1
+	}
+	if maxY >= w.h {
+		maxY = w.h - 1
+	}
+
+	if minX > maxX || minY > maxY {
+		return
+	}
+
+	sigma := region.radius * 0.5
+	if sigma <= 0 {
+		sigma = region.radius
+	}
+	invTwoSigmaSq := 0.0
+	if sigma > 0 {
+		invTwoSigmaSq = 1.0 / (2 * sigma * sigma)
+	}
+
+	for y := minY; y <= maxY; y++ {
+		cy := float64(y) + 0.5
+		for x := minX; x <= maxX; x++ {
+			cx := float64(x) + 0.5
+			dx := cx - region.cx
+			dy := cy - region.cy
+			dist := math.Sqrt(dx*dx + dy*dy)
+			if dist > region.radius {
+				continue
+			}
+
+			intensity := region.strength
+			if invTwoSigmaSq > 0 {
+				intensity *= math.Exp(-dist * dist * invTwoSigmaSq)
+			}
+			if intensity <= 0 {
+				continue
+			}
+			if intensity > 1 {
+				intensity = 1
+			}
+			if intensity < 0.001 {
+				continue
+			}
+
+			idx := y*w.w + x
+			if idx < 0 || idx >= len(w.rainNext) {
+				continue
+			}
+			val := float32(intensity)
+			if val <= w.rainNext[idx] {
+				continue
+			}
+			w.rainNext[idx] = val
+		}
+	}
+}
+
+func (w *World) spawnRainRegion() {
+	if w.w <= 0 || w.h <= 0 {
+		return
+	}
+
+	maxRegions := w.cfg.Params.RainMaxRegions
+	if maxRegions <= 0 {
+		return
+	}
+	if len(w.rainRegions) >= maxRegions {
+		return
+	}
+
+	spawnChance := w.cfg.Params.RainSpawnChance
+	if spawnChance <= 0 {
+		return
+	}
+	if spawnChance > 1 {
+		spawnChance = 1
+	}
+	if w.rng.Float64() >= spawnChance {
+		return
+	}
+
+	radiusMin := w.cfg.Params.RainRadiusMin
+	radiusMax := w.cfg.Params.RainRadiusMax
+	if radiusMin <= 0 {
+		radiusMin = 1
+	}
+	if radiusMax < radiusMin {
+		radiusMax = radiusMin
+	}
+	radius := radiusMin
+	if radiusMax > radiusMin {
+		radius += w.rng.Intn(radiusMax - radiusMin + 1)
+	}
+
+	ttlMin := w.cfg.Params.RainTTLMin
+	ttlMax := w.cfg.Params.RainTTLMax
+	if ttlMin <= 0 {
+		ttlMin = 1
+	}
+	if ttlMax < ttlMin {
+		ttlMax = ttlMin
+	}
+	ttl := ttlMin
+	if ttlMax > ttlMin {
+		ttl += w.rng.Intn(ttlMax - ttlMin + 1)
+	}
+
+	strengthMin := w.cfg.Params.RainStrengthMin
+	strengthMax := w.cfg.Params.RainStrengthMax
+	if strengthMin < 0 {
+		strengthMin = 0
+	}
+	if strengthMax < strengthMin {
+		strengthMax = strengthMin
+	}
+	strength := strengthMin
+	if strengthMax > strengthMin {
+		strength += w.rng.Float64() * (strengthMax - strengthMin)
+	}
+	if strength > 1 {
+		strength = 1
+	}
+
+	cx := float64(w.rng.Intn(w.w)) + 0.5
+	cy := float64(w.rng.Intn(w.h)) + 0.5
+
+	w.rainRegions = append(w.rainRegions, rainRegion{
+		cx:       cx,
+		cy:       cy,
+		radius:   float64(radius),
+		strength: strength,
+		ttl:      ttl,
+	})
 }
 
 func (w *World) updateVolcanoMask() {
