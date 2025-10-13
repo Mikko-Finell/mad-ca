@@ -37,6 +37,7 @@ type Params struct {
 	VolcanoProtoStrengthMin       float64
 	VolcanoProtoStrengthMax       float64
 	VolcanoUpliftChanceBase       float64
+	VolcanoEruptionChanceBase     float64
 }
 
 // Config controls the Ecology simulation dimensions.
@@ -85,6 +86,7 @@ func DefaultConfig() Config {
 			VolcanoProtoStrengthMin:       0.4,
 			VolcanoProtoStrengthMax:       0.9,
 			VolcanoUpliftChanceBase:       0.00002,
+			VolcanoEruptionChanceBase:     0.00005,
 		},
 	}
 }
@@ -268,6 +270,11 @@ func FromMap(cfg map[string]string) Config {
 	if v, ok := cfg["volcano_uplift_chance_base"]; ok {
 		if parsed, err := strconv.ParseFloat(v, 64); err == nil && parsed >= 0 {
 			c.Params.VolcanoUpliftChanceBase = parsed
+		}
+	}
+	if v, ok := cfg["volcano_eruption_chance_base"]; ok {
+		if parsed, err := strconv.ParseFloat(v, 64); err == nil && parsed >= 0 {
+			c.Params.VolcanoEruptionChanceBase = parsed
 		}
 	}
 	return c
