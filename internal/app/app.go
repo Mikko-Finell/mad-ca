@@ -35,7 +35,7 @@ func New(sim core.Sim, scale int, seed int64) *Game {
 	return &Game{
 		sim:      sim,
 		painter:  gp,
-		overlay:  ui.NewOverlay(),
+		overlay:  ui.NewOverlay(sim, scale),
 		onColor:  color.White,
 		offColor: color.Black,
 		scale:    scale,
