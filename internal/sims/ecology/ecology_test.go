@@ -1,6 +1,7 @@
 package ecology
 
 import (
+	"image/color"
 	"math"
 	"slices"
 	"testing"
@@ -654,6 +655,65 @@ func TestLavaCoolingAcceleratesWithRain(t *testing.T) {
 
 	if got := int(world.lavaLife[0]); got != 1 {
 		t.Fatalf("expected full rain to nearly extinguish lava, lava life=%d", got)
+	}
+}
+
+func TestRebuildDisplayEncodesVegetationAndBurning(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Width = 2
+	cfg.Height = 1
+	cfg.Params.GrassPatchCount = 0
+
+	world := NewWithConfig(cfg)
+	world.Reset(0)
+
+	world.groundCurr[0] = GroundDirt
+	world.vegCurr[0] = VegetationGrass
+	world.burnTTL[0] = 0
+
+	world.rebuildDisplay()
+	expectedGrass := encodeDisplayValue(GroundDirt, VegetationGrass, false)
+	if world.display[0] != expectedGrass {
+		t.Fatalf("expected grass to influence display, want %d got %d", expectedGrass, world.display[0])
+	}
+
+	world.burnTTL[0] = 2
+	world.rebuildDisplay()
+	expectedBurn := encodeDisplayValue(GroundDirt, VegetationGrass, true)
+	if world.display[0] != expectedBurn {
+		t.Fatalf("expected burning flag to set display bit, want %d got %d", expectedBurn, world.display[0])
+	}
+
+	world.groundCurr[1] = GroundRock
+	world.vegCurr[1] = VegetationNone
+	world.burnTTL[1] = 0
+	world.rebuildDisplay()
+	if world.display[1] != uint8(GroundRock) {
+		t.Fatalf("expected bare rock to preserve ground encoding, got %d", world.display[1])
+	}
+}
+
+func TestPaletteProvidesDistinctEntries(t *testing.T) {
+	world := NewWithConfig(DefaultConfig())
+	palette := world.Palette()
+
+	dirtIdx := encodeDisplayValue(GroundDirt, VegetationNone, false)
+	grassIdx := encodeDisplayValue(GroundDirt, VegetationGrass, false)
+	burnIdx := encodeDisplayValue(GroundDirt, VegetationGrass, true)
+
+	if len(palette) <= int(burnIdx) {
+		t.Fatalf("palette too small, need at least %d entries got %d", burnIdx+1, len(palette))
+	}
+
+	dirt := color.NRGBA{R: palette[dirtIdx].R, G: palette[dirtIdx].G, B: palette[dirtIdx].B, A: palette[dirtIdx].A}
+	grass := color.NRGBA{R: palette[grassIdx].R, G: palette[grassIdx].G, B: palette[grassIdx].B, A: palette[grassIdx].A}
+	burn := color.NRGBA{R: palette[burnIdx].R, G: palette[burnIdx].G, B: palette[burnIdx].B, A: palette[burnIdx].A}
+
+	if dirt == grass {
+		t.Fatalf("expected vegetation palette entry to differ from bare ground: %v vs %v", dirt, grass)
+	}
+	if burn == grass {
+		t.Fatalf("expected burning palette entry to differ from vegetation: %v vs %v", burn, grass)
 	}
 }
 
