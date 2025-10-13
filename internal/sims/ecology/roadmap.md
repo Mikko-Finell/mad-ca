@@ -58,7 +58,7 @@
 
 ## Phase 3 — Fire System
 
-**Status:** Not started.
+**Status:** In progress — burning lifecycle, lava ignition, and rain modulation implemented with tests; prepping lava cooling/spread hooks.
 
 **Goal:** Add Burning flag lifecycle and local fire spread (lava not required yet).
 
@@ -74,6 +74,10 @@
 * Fire front propagation speed within configured envelope.
 * Burn-out leaves predictable clearings; no phantom fires (no negative TTLs).
 * Determinism under mixed burning/non-burning neighborhoods.
+
+**Notes:**
+
+* Manual ignition debug control is available via the app and fire-related parameters are configurable. The burn TTL countdown now clears vegetation, spreads to neighbors using tunables, and is covered by unit tests. Lava-adjacent tiles can now ignite and rain both dampens and extinguishes fires, enabling mask-driven modulation once region spawners arrive. Next step: drive lava cooling/spread so volcanic activity feeds the fire system.
 
 **Exit Criteria**
 
