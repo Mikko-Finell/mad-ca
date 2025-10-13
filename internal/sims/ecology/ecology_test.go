@@ -534,6 +534,40 @@ func TestLavaCoolingAcceleratesWhenMaskLow(t *testing.T) {
 	}
 }
 
+func TestLavaCoolingAcceleratesWithRain(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Width = 1
+	cfg.Height = 1
+	cfg.Seed = 42
+	cfg.Params.GrassPatchCount = 0
+	cfg.Params.LavaSpreadChance = 0
+	cfg.Params.LavaCoolingExtra = 0
+
+	world := NewWithConfig(cfg)
+	world.Reset(0)
+	world.groundCurr[0] = GroundLava
+	world.lavaLife[0] = 10
+	world.rainCurr[0] = 0.5
+
+	world.applyLava()
+
+	if got := int(world.lavaLife[0]); got != 5 {
+		t.Fatalf("expected rain to add cooling bonus, lava life=%d", got)
+	}
+
+	world.Reset(0)
+	world.groundCurr[0] = GroundLava
+	world.lavaLife[0] = 10
+	world.rainCurr[0] = 1
+	world.volCurr[0] = 1
+
+	world.applyLava()
+
+	if got := int(world.lavaLife[0]); got != 1 {
+		t.Fatalf("expected full rain to nearly extinguish lava, lava life=%d", got)
+	}
+}
+
 func TestVegetationSpreadFromSeed(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Width = 4
@@ -701,6 +735,7 @@ func TestVolcanoCyclesRegression(t *testing.T) {
 	mountainHistory := make([]int, steps)
 
 	for i := 0; i < steps; i++ {
+		applyOscillatingRain(world, i)
 		world.Step()
 		lavaHistory[i] = countGroundTiles(world.groundCurr, GroundLava)
 		mountainHistory[i] = countGroundTiles(world.groundCurr, GroundMountain)
@@ -711,11 +746,11 @@ func TestVolcanoCyclesRegression(t *testing.T) {
 		lava     int
 		mountain int
 	}{
-		{tick: 90, lava: 246, mountain: 69},
-		{tick: 179, lava: 366, mountain: 319},
-		{tick: 359, lava: 241, mountain: 810},
-		{tick: 419, lava: 172, mountain: 864},
-		{tick: steps - 1, lava: 179, mountain: 1022},
+		{tick: 90, lava: 66, mountain: 10},
+		{tick: 179, lava: 23, mountain: 282},
+		{tick: 359, lava: 88, mountain: 705},
+		{tick: 419, lava: 33, mountain: 803},
+		{tick: steps - 1, lava: 0, mountain: 933},
 	}
 
 	for _, checkpoint := range checkpoints {
@@ -738,8 +773,8 @@ func TestVolcanoCyclesRegression(t *testing.T) {
 		}
 	}
 
-	if maxLava != 420 {
-		t.Fatalf("expected lava peak of 420 tiles, got %d", maxLava)
+	if maxLava != 163 {
+		t.Fatalf("expected lava peak of 163 tiles, got %d", maxLava)
 	}
 	if minLava != 0 {
 		t.Fatalf("expected lava trough to fully cool, min=%d", minLava)
@@ -754,4 +789,34 @@ func countGroundTiles(buf []Ground, target Ground) int {
 		}
 	}
 	return count
+}
+
+func applyOscillatingRain(world *World, tick int) {
+	width := world.w
+	height := world.h
+	if width == 0 || height == 0 {
+		return
+	}
+	bandRadius := int(math.Max(4, float64(width)/8))
+	sweep := width + bandRadius*2
+	center := (tick * 3) % sweep
+	center -= bandRadius
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			idx := y*width + x
+			dist := math.Abs(float64(x - center))
+			if dist > float64(bandRadius) {
+				world.rainCurr[idx] = 0
+				continue
+			}
+			intensity := 1 - dist/float64(bandRadius)
+			if intensity < 0 {
+				intensity = 0
+			}
+			if intensity > 1 {
+				intensity = 1
+			}
+			world.rainCurr[idx] = float32(intensity)
+		}
+	}
 }

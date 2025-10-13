@@ -755,7 +755,7 @@ func (w *World) applyLava() {
 		coolingExtra = 0
 	}
 
-	maskAt := func(idx int) float64 {
+	volMaskAt := func(idx int) float64 {
 		if idx < 0 || idx >= len(w.volCurr) {
 			return 0
 		}
@@ -769,6 +769,22 @@ func (w *World) applyLava() {
 		return val
 	}
 
+	rainAt := func(idx int) float64 {
+		if idx < 0 || idx >= len(w.rainCurr) {
+			return 0
+		}
+		val := float64(w.rainCurr[idx])
+		if val < 0 {
+			return 0
+		}
+		if val > 1 {
+			return 1
+		}
+		return val
+	}
+
+	const rainCoolingScale = 8.0
+
 	for y := 0; y < w.h; y++ {
 		for x := 0; x < w.w; x++ {
 			idx := y*w.w + x
@@ -776,12 +792,19 @@ func (w *World) applyLava() {
 				continue
 			}
 
-			maskHere := maskAt(idx)
+			volMaskHere := volMaskAt(idx)
+			rainHere := rainAt(idx)
 			cooling := 1
 			if coolingExtra > 0 {
-				coolingDelta := int(math.Round((1 - maskHere) * coolingExtra))
+				coolingDelta := int(math.Round((1 - volMaskHere) * coolingExtra))
 				if coolingDelta > 0 {
 					cooling += coolingDelta
+				}
+			}
+			if rainHere > 0 {
+				rainCooling := int(math.Round(rainHere * rainCoolingScale))
+				if rainCooling > 0 {
+					cooling += rainCooling
 				}
 			}
 			if cooling < 1 {
@@ -831,8 +854,8 @@ func (w *World) applyLava() {
 					if ground != GroundDirt && ground != GroundRock {
 						continue
 					}
-					heat := maskHere
-					if targetMask := maskAt(nIdx); targetMask > heat {
+					heat := volMaskHere
+					if targetMask := volMaskAt(nIdx); targetMask > heat {
 						heat = targetMask
 					}
 					if heat < spreadFloor {
