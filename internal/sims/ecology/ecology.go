@@ -47,6 +47,21 @@ type World struct {
 	display    []uint8
 
 	rng *rand.Rand
+
+	metrics VegetationMetrics
+}
+
+// VegetationMetrics captures aggregate vegetation telemetry for the current tick.
+type VegetationMetrics struct {
+	GrassTiles int
+	ShrubTiles int
+	TreeTiles  int
+
+	TotalVegetated int
+
+	// ClusterHistogram stores the count of Moore-connected components by size.
+	// Index represents the component size; index 0 is unused.
+	ClusterHistogram []int
 }
 
 // New returns an Ecology simulation with the provided dimensions using defaults.
@@ -137,6 +152,9 @@ func (w *World) Reset(seed int64) {
 	w.seedGrassPatches()
 	copy(w.groundNext, w.groundCurr)
 	copy(w.vegNext, w.vegCurr)
+
+	w.metrics = VegetationMetrics{}
+	w.updateMetrics(w.vegCurr)
 }
 
 // Step advances the simulation by applying the vegetation succession rules once.
@@ -180,7 +198,102 @@ func (w *World) Step() {
 		w.vegNext[i] = next
 	}
 
+	w.updateMetrics(w.vegNext)
 	w.vegCurr, w.vegNext = w.vegNext, w.vegCurr
+}
+
+// Metrics exposes the latest vegetation telemetry.
+func (w *World) Metrics() VegetationMetrics {
+	m := w.metrics
+	if len(m.ClusterHistogram) > 0 {
+		m.ClusterHistogram = append([]int(nil), m.ClusterHistogram...)
+	}
+	return m
+}
+
+func (w *World) updateMetrics(buffer []Vegetation) {
+	total := w.w * w.h
+	if total == 0 {
+		w.metrics = VegetationMetrics{}
+		return
+	}
+
+	var m VegetationMetrics
+
+	for i := 0; i < total; i++ {
+		switch buffer[i] {
+		case VegetationGrass:
+			m.GrassTiles++
+		case VegetationShrub:
+			m.ShrubTiles++
+		case VegetationTree:
+			m.TreeTiles++
+		}
+	}
+	m.TotalVegetated = m.GrassTiles + m.ShrubTiles + m.TreeTiles
+
+	visited := make([]bool, total)
+	componentCounts := make(map[int]int)
+	maxSize := 0
+
+	for idx := 0; idx < total; idx++ {
+		if visited[idx] {
+			continue
+		}
+		if buffer[idx] == VegetationNone {
+			continue
+		}
+
+		size := 0
+		stack := []int{idx}
+		visited[idx] = true
+		for len(stack) > 0 {
+			current := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+			size++
+
+			cx := current % w.w
+			cy := current / w.w
+			for dy := -1; dy <= 1; dy++ {
+				ny := cy + dy
+				if ny < 0 || ny >= w.h {
+					continue
+				}
+				for dx := -1; dx <= 1; dx++ {
+					nx := cx + dx
+					if nx < 0 || nx >= w.w {
+						continue
+					}
+					if dx == 0 && dy == 0 {
+						continue
+					}
+					nIdx := ny*w.w + nx
+					if visited[nIdx] {
+						continue
+					}
+					if buffer[nIdx] == VegetationNone {
+						continue
+					}
+					visited[nIdx] = true
+					stack = append(stack, nIdx)
+				}
+			}
+		}
+
+		componentCounts[size]++
+		if size > maxSize {
+			maxSize = size
+		}
+	}
+
+	if maxSize > 0 {
+		m.ClusterHistogram = make([]int, maxSize+1)
+		for size, count := range componentCounts {
+			m.ClusterHistogram[size] = count
+		}
+	}
+
+	w.metrics = m
 }
 
 func (w *World) mooreNeighborCounts() ([]uint8, []uint8) {
