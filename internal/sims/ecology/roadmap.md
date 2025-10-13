@@ -27,7 +27,7 @@
 
 ## Phase 2 — Vegetation Succession (No Fire Yet)
 
-**Status:** In progress — Moore neighbor counting and deterministic vegetation succession implemented.
+**Status:** Complete — vegetation succession plus telemetry for growth curve & patchiness metrics in place.
 
 **Goal:** Get lifelike grass→shrub→tree growth and dirt→grass colonization.
 
@@ -48,7 +48,7 @@
 **Notes:**
 
 * Implemented helper-based neighbor counting and per-tick succession updates with unit tests covering spread and stage advancement.
-* Next step: add telemetry to measure growth curve and patchiness to complete Phase 2 validation.
+* Added vegetation telemetry (per-stage counts and cluster histogram) with deterministic regression tests verifying growth curve and patchiness.
 
 **Exit Criteria**
 

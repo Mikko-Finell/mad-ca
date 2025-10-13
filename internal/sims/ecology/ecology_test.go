@@ -164,3 +164,52 @@ func TestVegetationSuccessionDeterministic(t *testing.T) {
 		t.Fatalf("expected tile 10 to advance to tree, got %v", worldA.vegCurr[10])
 	}
 }
+
+func TestVegetationMetricsGrowthCurve(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Width = 6
+	cfg.Height = 6
+	cfg.Seed = 1234
+	cfg.Params.RockChance = 0
+	cfg.Params.GrassPatchCount = 0
+	cfg.Params.GrassSpreadChance = 1
+	cfg.Params.GrassNeighborThreshold = 1
+	cfg.Params.ShrubGrowthChance = 0
+	cfg.Params.TreeGrowthChance = 0
+
+	world := NewWithConfig(cfg)
+	world.Reset(0)
+
+	center := (cfg.Height/2)*cfg.Width + (cfg.Width / 2)
+	world.vegCurr[center] = VegetationGrass
+	copy(world.vegNext, world.vegCurr)
+
+	const steps = 3
+	metrics := make([]VegetationMetrics, 0, steps)
+	for i := 0; i < steps; i++ {
+		world.Step()
+		metrics = append(metrics, world.Metrics())
+	}
+
+	for i := 1; i < len(metrics); i++ {
+		if metrics[i].TotalVegetated <= metrics[i-1].TotalVegetated {
+			t.Fatalf("vegetated tiles should increase early; step %d: %d <= %d", i, metrics[i].TotalVegetated, metrics[i-1].TotalVegetated)
+		}
+	}
+
+	if len(metrics) == 0 {
+		t.Fatal("expected metrics to be recorded")
+	}
+
+	hist := metrics[len(metrics)-1].ClusterHistogram
+	hasCluster := false
+	for size := 2; size < len(hist); size++ {
+		if hist[size] > 0 {
+			hasCluster = true
+			break
+		}
+	}
+	if !hasCluster {
+		t.Fatalf("expected at least one cluster larger than size 1, histogram=%v", hist)
+	}
+}
