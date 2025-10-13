@@ -11,7 +11,7 @@ type HUD struct{}
 func NewHUD(core.Sim, int) *HUD { return nil }
 
 // Update is a no-op in the headless build.
-func (h *HUD) Update() {}
+func (h *HUD) Update(int) {}
 
 // Draw is a no-op in the headless build.
 func (h *HUD) Draw(any, int, int) {}

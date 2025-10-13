@@ -108,7 +108,8 @@ func (g *Game) Update() error {
 		g.overlay.Update()
 	}
 	if g.hud != nil {
-		g.hud.Update()
+		baseWidth := g.sim.Size().W * g.scale
+		g.hud.Update(baseWidth)
 	}
 
 	if g.igniter != nil && inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {

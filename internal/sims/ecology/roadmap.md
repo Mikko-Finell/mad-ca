@@ -25,7 +25,7 @@
 
 **Notes:**
 
-* HUD parameter snapshot plumbing now surfaces the full config to the app so future controls can adjust values without poking the simulation internals.
+* HUD parameter snapshot plumbing now surfaces the full config to the app so future controls can adjust values without poking the simulation internals, and the HUD now offers +/- controls for the primary ecology tunables (lava, fire, rain, vegetation) so they can be adjusted live.
 
 ---
 

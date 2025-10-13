@@ -102,6 +102,91 @@ type rainRegion struct {
 	ttl      int
 }
 
+// ParameterControls exposes the key ecology parameters that should be
+// adjustable from the HUD.
+func (w *World) ParameterControls() []core.ParameterControl {
+	return []core.ParameterControl{
+		floatControl("grass_spread_chance", "Grass spread chance", 0.05, 0, 1),
+		floatControl("shrub_growth_chance", "Shrub growth chance", 0.01, 0, 0.2),
+		floatControl("fire_spread_chance", "Fire spread chance", 0.05, 0, 1),
+		floatControl("fire_rain_spread_dampen", "Rain dampen factor", 0.05, 0, 1),
+		floatControl("rain_spawn_chance", "Rain spawn chance", 0.01, 0, 0.2),
+		floatControl("rain_strength_max", "Rain strength max", 0.05, 0, 1),
+		floatControl("lava_spread_chance", "Lava spread chance", 0.05, 0, 1),
+		floatControl("volcano_proto_spawn_chance", "Volcano spawn chance", 0.01, 0, 0.5),
+		intControl("lava_life_min", "Lava life min", 1, 1, 90),
+		intControl("lava_life_max", "Lava life max", 1, 1, 120),
+		intControl("burn_ttl", "Burn duration", 1, 1, 10),
+	}
+}
+
+// SetIntParameter allows HUD interactions to update integer ecology parameters.
+func (w *World) SetIntParameter(key string, value int) bool {
+	if w == nil {
+		return false
+	}
+	switch key {
+	case "lava_life_min":
+		clamped := clampInt(value, 1, 90)
+		if clamped > w.cfg.Params.LavaLifeMax {
+			w.cfg.Params.LavaLifeMax = clamped
+		}
+		w.cfg.Params.LavaLifeMin = clamped
+		return true
+	case "lava_life_max":
+		clamped := clampInt(value, 1, 120)
+		if clamped < w.cfg.Params.LavaLifeMin {
+			clamped = w.cfg.Params.LavaLifeMin
+		}
+		w.cfg.Params.LavaLifeMax = clamped
+		return true
+	case "burn_ttl":
+		w.cfg.Params.BurnTTL = clampInt(value, 1, 10)
+		return true
+	default:
+		return false
+	}
+}
+
+// SetFloatParameter allows HUD interactions to update float ecology parameters.
+func (w *World) SetFloatParameter(key string, value float64) bool {
+	if w == nil {
+		return false
+	}
+	switch key {
+	case "grass_spread_chance":
+		w.cfg.Params.GrassSpreadChance = clampFloat(value, 0, 1)
+		return true
+	case "shrub_growth_chance":
+		w.cfg.Params.ShrubGrowthChance = clampFloat(value, 0, 0.2)
+		return true
+	case "fire_spread_chance":
+		w.cfg.Params.FireSpreadChance = clampFloat(value, 0, 1)
+		return true
+	case "fire_rain_spread_dampen":
+		w.cfg.Params.FireRainSpreadDampen = clampFloat(value, 0, 1)
+		return true
+	case "rain_spawn_chance":
+		w.cfg.Params.RainSpawnChance = clampFloat(value, 0, 0.2)
+		return true
+	case "rain_strength_max":
+		clamped := clampFloat(value, 0, 1)
+		if clamped < w.cfg.Params.RainStrengthMin {
+			clamped = w.cfg.Params.RainStrengthMin
+		}
+		w.cfg.Params.RainStrengthMax = clamped
+		return true
+	case "lava_spread_chance":
+		w.cfg.Params.LavaSpreadChance = clampFloat(value, 0, 1)
+		return true
+	case "volcano_proto_spawn_chance":
+		w.cfg.Params.VolcanoProtoSpawnChance = clampFloat(value, 0, 0.5)
+		return true
+	default:
+		return false
+	}
+}
+
 // New returns an Ecology simulation with the provided dimensions using defaults.
 func New(w, h int) *World {
 	cfg := DefaultConfig()
@@ -203,6 +288,52 @@ func (w *World) Reset(seed int64) {
 	w.rainRegions = w.rainRegions[:0]
 	w.volcanoRegions = w.volcanoRegions[:0]
 	w.expiredVolcanoProtos = w.expiredVolcanoProtos[:0]
+}
+
+func floatControl(key, label string, step, min, max float64) core.ParameterControl {
+	return core.ParameterControl{
+		Key:    key,
+		Label:  label,
+		Type:   core.ParamTypeFloat,
+		Step:   step,
+		Min:    min,
+		Max:    max,
+		HasMin: true,
+		HasMax: true,
+	}
+}
+
+func intControl(key, label string, step float64, min, max int) core.ParameterControl {
+	return core.ParameterControl{
+		Key:    key,
+		Label:  label,
+		Type:   core.ParamTypeInt,
+		Step:   step,
+		Min:    float64(min),
+		Max:    float64(max),
+		HasMin: true,
+		HasMax: true,
+	}
+}
+
+func clampInt(value, min, max int) int {
+	if value < min {
+		return min
+	}
+	if value > max {
+		return max
+	}
+	return value
+}
+
+func clampFloat(value, min, max float64) float64 {
+	if value < min {
+		return min
+	}
+	if value > max {
+		return max
+	}
+	return value
 }
 
 // Step advances the simulation by applying the vegetation succession rules once.
