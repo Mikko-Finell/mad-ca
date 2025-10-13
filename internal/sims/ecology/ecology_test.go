@@ -378,13 +378,102 @@ func TestRainPreventsLavaIgnitionWhenFullyWet(t *testing.T) {
 	world.groundCurr[1] = GroundLava
 	world.lavaLife[1] = 5
 	world.vegCurr[0] = VegetationTree
-	world.rainCurr[0] = 1
+	world.rainRegions = append(world.rainRegions, rainRegion{
+		cx:       0.5,
+		cy:       0.5,
+		radius:   4,
+		strength: 1,
+		ttl:      5,
+	})
 	copy(world.vegNext, world.vegCurr)
 
 	world.Step()
 
 	if world.burnTTL[0] != 0 {
 		t.Fatalf("rain dampening should prevent lava ignition, ttl=%d", world.burnTTL[0])
+	}
+}
+
+func TestRainRegionRasterizesAndExpires(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Width = 5
+	cfg.Height = 5
+	cfg.Params.RainSpawnChance = 0
+
+	world := NewWithConfig(cfg)
+	world.Reset(0)
+
+	world.rainRegions = append(world.rainRegions, rainRegion{
+		cx:       2.5,
+		cy:       2.5,
+		radius:   3,
+		strength: 1,
+		ttl:      2,
+	})
+
+	world.updateRainMask()
+
+	centerIdx := 2*world.w + 2
+	if got := world.rainCurr[centerIdx]; got < 0.95 {
+		t.Fatalf("expected strong rain at center, got %.3f", got)
+	}
+
+	edgeIdx := 2*world.w + 4
+	if world.rainCurr[edgeIdx] >= world.rainCurr[centerIdx] {
+		t.Fatalf("expected gaussian falloff, edge %.3f center %.3f", world.rainCurr[edgeIdx], world.rainCurr[centerIdx])
+	}
+
+	if len(world.rainRegions) != 1 {
+		t.Fatalf("expected region to persist with ttl decrement, len=%d", len(world.rainRegions))
+	}
+	if world.rainRegions[0].ttl != 1 {
+		t.Fatalf("expected ttl to decrement to 1, got %d", world.rainRegions[0].ttl)
+	}
+
+	world.updateRainMask()
+	if len(world.rainRegions) != 0 {
+		t.Fatalf("expected region to expire after second tick, len=%d", len(world.rainRegions))
+	}
+	if got := world.rainCurr[centerIdx]; got < 0.95 {
+		t.Fatalf("expected second tick to still render rain, got %.3f", got)
+	}
+
+	world.updateRainMask()
+	for i, v := range world.rainCurr {
+		if v != 0 {
+			t.Fatalf("expected rain mask to clear after expiry, idx=%d val=%.3f", i, v)
+		}
+	}
+}
+
+func TestSpawnRainRespectsCap(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Width = 8
+	cfg.Height = 8
+	cfg.Params.RainSpawnChance = 1
+	cfg.Params.RainMaxRegions = 2
+	cfg.Params.RainTTLMin = 1
+	cfg.Params.RainTTLMax = 1
+
+	world := NewWithConfig(cfg)
+	world.Reset(0)
+
+	world.spawnRainRegion()
+	world.spawnRainRegion()
+	world.spawnRainRegion()
+
+	if len(world.rainRegions) != 2 {
+		t.Fatalf("expected rain regions capped at 2, got %d", len(world.rainRegions))
+	}
+
+	world.updateRainMask()
+	if len(world.rainRegions) != 0 {
+		t.Fatalf("expected regions to expire after ttl, got %d", len(world.rainRegions))
+	}
+
+	world.spawnRainRegion()
+	if len(world.rainRegions) != 1 {
+		t.Fatalf("expected new rain region after expiry, got %d", len(world.rainRegions))
 	}
 }
 
@@ -746,14 +835,15 @@ func TestVolcanoCyclesRegression(t *testing.T) {
 		lava     int
 		mountain int
 	}{
-		{tick: 90, lava: 66, mountain: 10},
-		{tick: 179, lava: 23, mountain: 282},
-		{tick: 359, lava: 88, mountain: 705},
-		{tick: 419, lava: 33, mountain: 803},
-		{tick: steps - 1, lava: 0, mountain: 933},
+		{tick: 90, lava: 0, mountain: 12},
+		{tick: 179, lava: 2, mountain: 99},
+		{tick: 359, lava: 0, mountain: 210},
+		{tick: 419, lava: 0, mountain: 272},
+		{tick: steps - 1, lava: 0, mountain: 417},
 	}
 
 	for _, checkpoint := range checkpoints {
+		t.Logf("tick %d -> lava=%d mountain=%d", checkpoint.tick, lavaHistory[checkpoint.tick], mountainHistory[checkpoint.tick])
 		if lavaHistory[checkpoint.tick] != checkpoint.lava {
 			t.Fatalf("lava count mismatch at tick %d: expected %d, got %d", checkpoint.tick, checkpoint.lava, lavaHistory[checkpoint.tick])
 		}
@@ -773,8 +863,10 @@ func TestVolcanoCyclesRegression(t *testing.T) {
 		}
 	}
 
-	if maxLava != 163 {
-		t.Fatalf("expected lava peak of 163 tiles, got %d", maxLava)
+	t.Logf("lava peak=%d trough=%d", maxLava, minLava)
+
+	if maxLava != 77 {
+		t.Fatalf("expected lava peak of 77 tiles, got %d", maxLava)
 	}
 	if minLava != 0 {
 		t.Fatalf("expected lava trough to fully cool, min=%d", minLava)
@@ -797,26 +889,19 @@ func applyOscillatingRain(world *World, tick int) {
 	if width == 0 || height == 0 {
 		return
 	}
-	bandRadius := int(math.Max(4, float64(width)/8))
-	sweep := width + bandRadius*2
-	center := (tick * 3) % sweep
-	center -= bandRadius
-	for y := 0; y < height; y++ {
-		for x := 0; x < width; x++ {
-			idx := y*width + x
-			dist := math.Abs(float64(x - center))
-			if dist > float64(bandRadius) {
-				world.rainCurr[idx] = 0
-				continue
-			}
-			intensity := 1 - dist/float64(bandRadius)
-			if intensity < 0 {
-				intensity = 0
-			}
-			if intensity > 1 {
-				intensity = 1
-			}
-			world.rainCurr[idx] = float32(intensity)
-		}
-	}
+	bandRadius := math.Max(4, float64(width)/8)
+	sweep := float64(width) + bandRadius*2
+	center := math.Mod(float64(tick*3), sweep) - bandRadius
+
+	world.rainRegions = world.rainRegions[:0]
+
+	effectiveRadius := math.Max(bandRadius, float64(height)*1.5)
+	cy := float64(height)/2 + 0.5
+	world.rainRegions = append(world.rainRegions, rainRegion{
+		cx:       center + 0.5,
+		cy:       cy,
+		radius:   effectiveRadius,
+		strength: 1,
+		ttl:      1,
+	})
 }
