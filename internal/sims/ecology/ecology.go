@@ -70,6 +70,23 @@ type VegetationMetrics struct {
 	ClusterHistogram []int
 }
 
+// EnvironmentMetrics captures ground, fire, and rain telemetry for the current tick.
+type EnvironmentMetrics struct {
+	DirtTiles     int
+	RockTiles     int
+	MountainTiles int
+	LavaTiles     int
+
+	BurningTiles int
+
+	RainCoverage      int
+	ActiveRainRegions int
+	RainMean          float64
+	RainMax           float64
+
+	TotalTiles int
+}
+
 type volcanoProtoRegion struct {
 	cx, cy   float64
 	radius   float64
@@ -1365,6 +1382,52 @@ func (w *World) Metrics() VegetationMetrics {
 		m.ClusterHistogram = append([]int(nil), m.ClusterHistogram...)
 	}
 	return m
+}
+
+// EnvironmentSummary returns environment telemetry derived from the current buffers.
+func (w *World) EnvironmentSummary() EnvironmentMetrics {
+	total := w.w * w.h
+	if total == 0 {
+		return EnvironmentMetrics{}
+	}
+
+	var metrics EnvironmentMetrics
+	metrics.TotalTiles = total
+	metrics.ActiveRainRegions = len(w.rainRegions)
+
+	var rainSum float64
+	for i := 0; i < total; i++ {
+		if i < len(w.groundCurr) {
+			switch w.groundCurr[i] {
+			case GroundDirt:
+				metrics.DirtTiles++
+			case GroundRock:
+				metrics.RockTiles++
+			case GroundMountain:
+				metrics.MountainTiles++
+			case GroundLava:
+				metrics.LavaTiles++
+			}
+		}
+
+		if i < len(w.burnTTL) && w.burnTTL[i] > 0 {
+			metrics.BurningTiles++
+		}
+
+		if i < len(w.rainCurr) {
+			value := float64(w.rainCurr[i])
+			rainSum += value
+			if value > 0 {
+				metrics.RainCoverage++
+				if value > metrics.RainMax {
+					metrics.RainMax = value
+				}
+			}
+		}
+	}
+
+	metrics.RainMean = rainSum / float64(total)
+	return metrics
 }
 
 func (w *World) updateMetrics(buffer []Vegetation) {
