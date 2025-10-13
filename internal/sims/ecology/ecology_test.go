@@ -162,6 +162,7 @@ func TestLavaIgnitesAdjacentVegetation(t *testing.T) {
 	cfg.Params.GrassPatchCount = 0
 	cfg.Params.FireLavaIgniteChance = 1
 	cfg.Params.FireSpreadChance = 0
+	cfg.Params.LavaSpreadChance = 0
 	cfg.Params.GrassSpreadChance = 0
 	cfg.Params.ShrubGrowthChance = 0
 	cfg.Params.TreeGrowthChance = 0
@@ -190,6 +191,7 @@ func TestRainPreventsLavaIgnitionWhenFullyWet(t *testing.T) {
 	cfg.Params.FireLavaIgniteChance = 1
 	cfg.Params.FireSpreadChance = 0
 	cfg.Params.FireRainSpreadDampen = 1
+	cfg.Params.LavaSpreadChance = 0
 	cfg.Params.GrassSpreadChance = 0
 	cfg.Params.ShrubGrowthChance = 0
 	cfg.Params.TreeGrowthChance = 0
@@ -207,6 +209,78 @@ func TestRainPreventsLavaIgnitionWhenFullyWet(t *testing.T) {
 
 	if world.burnTTL[0] != 0 {
 		t.Fatalf("rain dampening should prevent lava ignition, ttl=%d", world.burnTTL[0])
+	}
+}
+
+func TestLavaCoolsToRock(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Width = 1
+	cfg.Height = 1
+	cfg.Seed = 11
+	cfg.Params.GrassPatchCount = 0
+	cfg.Params.LavaLifeMin = 1
+	cfg.Params.LavaLifeMax = 1
+	cfg.Params.LavaSpreadChance = 0
+
+	world := NewWithConfig(cfg)
+	world.Reset(0)
+
+	world.groundCurr[0] = GroundLava
+	world.lavaLife[0] = 1
+	world.display[0] = uint8(GroundLava)
+
+	world.Step()
+
+	if world.groundCurr[0] != GroundRock {
+		t.Fatalf("expected lava to cool to rock, got %v", world.groundCurr[0])
+	}
+	if world.lavaLife[0] != 0 {
+		t.Fatalf("expected lava life to clear after cooling, got %d", world.lavaLife[0])
+	}
+	if world.display[0] != uint8(GroundRock) {
+		t.Fatalf("display buffer should reflect cooled rock, got %d", world.display[0])
+	}
+}
+
+func TestLavaSpreadFeedsFire(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Width = 4
+	cfg.Height = 1
+	cfg.Seed = 21
+	cfg.Params.GrassPatchCount = 0
+	cfg.Params.FireLavaIgniteChance = 1
+	cfg.Params.FireSpreadChance = 0
+	cfg.Params.LavaSpreadChance = 1
+	cfg.Params.LavaLifeMin = 2
+	cfg.Params.LavaLifeMax = 2
+	cfg.Params.GrassSpreadChance = 0
+	cfg.Params.ShrubGrowthChance = 0
+	cfg.Params.TreeGrowthChance = 0
+
+	world := NewWithConfig(cfg)
+	world.Reset(0)
+
+	world.groundCurr[1] = GroundLava
+	world.lavaLife[1] = 3
+	world.vegCurr[3] = VegetationGrass
+	copy(world.vegNext, world.vegCurr)
+
+	world.Step()
+
+	if world.groundCurr[2] != GroundLava {
+		t.Fatalf("expected lava to spread to neighbor, got %v", world.groundCurr[2])
+	}
+	if world.lavaLife[2] != 2 {
+		t.Fatalf("expected new lava life of 2, got %d", world.lavaLife[2])
+	}
+	if world.vegCurr[2] != VegetationNone {
+		t.Fatalf("lava should clear vegetation on takeover, got %v", world.vegCurr[2])
+	}
+	if world.burnTTL[3] == 0 {
+		t.Fatalf("new lava should ignite adjacent vegetation, burn ttl=%d", world.burnTTL[3])
+	}
+	if world.vegCurr[3] != VegetationGrass {
+		t.Fatalf("vegetation should persist until burn completes, got %v", world.vegCurr[3])
 	}
 }
 
