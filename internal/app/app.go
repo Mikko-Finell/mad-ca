@@ -19,6 +19,13 @@ type Igniter interface {
 	IgniteAt(x, y int)
 }
 
+// PaletteProvider allows simulations to expose a color palette for rendering
+// multi-valued cell buffers. When unavailable the renderer falls back to the
+// binary on/off colors.
+type PaletteProvider interface {
+	Palette() []color.RGBA
+}
+
 // Game adapts a core simulation to the ebiten.Game interface.
 type Game struct {
 	sim     core.Sim
@@ -105,7 +112,11 @@ func (g *Game) Update() error {
 
 // Draw renders the current simulation state.
 func (g *Game) Draw(screen *ebiten.Image) {
-	g.painter.Blit(screen, g.sim.Cells(), g.onColor, g.offColor, g.scale)
+	if provider, ok := g.sim.(PaletteProvider); ok {
+		g.painter.BlitPalette(screen, g.sim.Cells(), provider.Palette(), g.scale)
+	} else {
+		g.painter.Blit(screen, g.sim.Cells(), g.onColor, g.offColor, g.scale)
+	}
 	if g.overlay != nil {
 		g.overlay.Draw(screen)
 	}

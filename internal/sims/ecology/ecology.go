@@ -198,6 +198,8 @@ func (w *World) Reset(seed int64) {
 	w.metrics = VegetationMetrics{}
 	w.updateMetrics(w.vegCurr)
 
+	w.rebuildDisplay()
+
 	w.rainRegions = w.rainRegions[:0]
 	w.volcanoRegions = w.volcanoRegions[:0]
 	w.expiredVolcanoProtos = w.expiredVolcanoProtos[:0]
@@ -261,6 +263,8 @@ func (w *World) Step() {
 
 	w.spawnRainRegion()
 	w.spawnVolcanoProtoRegion()
+
+	w.rebuildDisplay()
 }
 
 func (w *World) updateRainMask() {
@@ -1370,9 +1374,7 @@ func (w *World) IgniteAt(x, y int) {
 		ttl = 255
 	}
 	w.burnTTL[idx] = uint8(ttl)
-	if idx < len(w.display) {
-		w.display[idx] = 1
-	}
+	w.rebuildDisplay()
 }
 
 // Metrics exposes the latest vegetation telemetry.
