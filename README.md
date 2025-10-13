@@ -24,7 +24,7 @@ The repository follows a layered structure:
 - `internal/core` exposes the foundational types (`Sim`, `Size`, timers, RNG helpers).
 - `internal/app` owns the Ebitengine `Game` adapter and command-line flag parsing.
 - `internal/render` provides efficient pixel upload helpers for grid-based simulations.
-- `internal/sims/*` contains self-contained implementations of individual simulations (Game of Life, Brian's Brain, Elementary rules).
+- `internal/sims/*` contains self-contained implementations of individual simulations (Game of Life, Brian's Brain, Elementary rules, Ecology placeholder).
 - `internal/ui` is reserved for optional overlays (FPS counters, controls, etc.).
 - `assets` stores fonts, images, and shaders that can be embedded into the binary.
 - `pkg` is for code that could be reused outside of the application (currently empty).
