@@ -113,7 +113,7 @@
 
 **Notes:**
 
-* Proto-volcano lifecycle groundwork laid: regions spawn deterministically from tectonic hotspots, paint the volcano mask with smooth falloff, and uplift nearby rock toward mountains while tracking expirations. Next step is to consume expirations for eruption generation and connect lava plumbing.
+* Proto-volcano lifecycle now consumes proto expirations to trigger eruptions that seed lava cores, uplift rims, and clear vegetation while feeding the lava system. Next step: tune eruption spread/cooling balance and add long-run regression coverage for repeated volcano cycles.
 
 ---
 

@@ -185,6 +185,7 @@ func (w *World) Step() {
 
 	w.updateVolcanoMask()
 	w.applyUplift()
+	w.applyEruptions()
 	w.applyLava()
 	w.applyFire()
 
@@ -365,6 +366,229 @@ func (w *World) applyUplift() {
 	}
 
 	w.groundCurr, w.groundNext = w.groundNext, w.groundCurr
+}
+
+func (w *World) applyEruptions() {
+	if len(w.expiredVolcanoProtos) == 0 {
+		return
+	}
+
+	total := w.w * w.h
+	if total == 0 || len(w.groundCurr) != total {
+		w.expiredVolcanoProtos = w.expiredVolcanoProtos[:0]
+		return
+	}
+	if len(w.lavaLife) != total {
+		w.expiredVolcanoProtos = w.expiredVolcanoProtos[:0]
+		return
+	}
+	if len(w.volCurr) != total {
+		w.expiredVolcanoProtos = w.expiredVolcanoProtos[:0]
+		return
+	}
+
+	baseChance := w.cfg.Params.VolcanoEruptionChanceBase
+	if baseChance <= 0 {
+		w.expiredVolcanoProtos = w.expiredVolcanoProtos[:0]
+		return
+	}
+
+	minLife := w.cfg.Params.LavaLifeMin
+	maxLife := w.cfg.Params.LavaLifeMax
+	if minLife <= 0 {
+		minLife = 1
+	}
+	if maxLife < minLife {
+		maxLife = minLife
+	}
+
+	const coreScale = 0.35
+	const rimScale = 0.9
+	const speckChance = 0.08
+
+	for _, region := range w.expiredVolcanoProtos {
+		if region.radius <= 0 {
+			continue
+		}
+		maskMean := w.volcanoMaskMean(region)
+		if maskMean <= 0 {
+			continue
+		}
+		chance := baseChance * maskMean
+		if chance > 1 {
+			chance = 1
+		}
+		if w.rng.Float64() >= chance {
+			continue
+		}
+
+		w.eruptRegion(region, minLife, maxLife, coreScale, rimScale, speckChance)
+	}
+
+	w.expiredVolcanoProtos = w.expiredVolcanoProtos[:0]
+}
+
+func (w *World) volcanoMaskMean(region volcanoProtoRegion) float64 {
+	if region.radius <= 0 {
+		return 0
+	}
+	total := w.w * w.h
+	if total == 0 || len(w.volCurr) != total {
+		return 0
+	}
+
+	minX := int(math.Floor(region.cx - region.radius))
+	maxX := int(math.Ceil(region.cx + region.radius))
+	minY := int(math.Floor(region.cy - region.radius))
+	maxY := int(math.Ceil(region.cy + region.radius))
+
+	if minX < 0 {
+		minX = 0
+	}
+	if minY < 0 {
+		minY = 0
+	}
+	if maxX >= w.w {
+		maxX = w.w - 1
+	}
+	if maxY >= w.h {
+		maxY = w.h - 1
+	}
+
+	var sum float64
+	var count int
+	radius := region.radius
+
+	for y := minY; y <= maxY; y++ {
+		cy := float64(y) + 0.5
+		for x := minX; x <= maxX; x++ {
+			cx := float64(x) + 0.5
+			dx := cx - region.cx
+			dy := cy - region.cy
+			dist := math.Sqrt(dx*dx + dy*dy)
+			if dist > radius {
+				continue
+			}
+			idx := y*w.w + x
+			if idx < 0 || idx >= len(w.volCurr) {
+				continue
+			}
+			sum += float64(w.volCurr[idx])
+			count++
+		}
+	}
+
+	if count == 0 {
+		return 0
+	}
+	return sum / float64(count)
+}
+
+func (w *World) eruptRegion(region volcanoProtoRegion, minLife, maxLife int, coreScale, rimScale, speckChance float64) {
+	if region.radius <= 0 {
+		return
+	}
+
+	minX := int(math.Floor(region.cx - region.radius))
+	maxX := int(math.Ceil(region.cx + region.radius))
+	minY := int(math.Floor(region.cy - region.radius))
+	maxY := int(math.Ceil(region.cy + region.radius))
+
+	if minX < 0 {
+		minX = 0
+	}
+	if minY < 0 {
+		minY = 0
+	}
+	if maxX >= w.w {
+		maxX = w.w - 1
+	}
+	if maxY >= w.h {
+		maxY = w.h - 1
+	}
+
+	coreRadius := region.radius * coreScale
+	rimRadius := region.radius * rimScale
+	if rimRadius < coreRadius {
+		rimRadius = coreRadius
+	}
+
+	for y := minY; y <= maxY; y++ {
+		cy := float64(y) + 0.5
+		for x := minX; x <= maxX; x++ {
+			cx := float64(x) + 0.5
+			dx := cx - region.cx
+			dy := cy - region.cy
+			dist := math.Sqrt(dx*dx + dy*dy)
+			if dist > region.radius {
+				continue
+			}
+			idx := y*w.w + x
+			if idx < 0 || idx >= len(w.groundCurr) {
+				continue
+			}
+
+			switch {
+			case dist <= coreRadius:
+				w.placeLava(idx, minLife, maxLife)
+			case dist <= rimRadius:
+				if w.groundCurr[idx] == GroundRock {
+					w.groundCurr[idx] = GroundMountain
+					if idx < len(w.display) {
+						w.display[idx] = uint8(GroundMountain)
+					}
+				}
+				if idx < len(w.lavaLife) {
+					w.lavaLife[idx] = 0
+				}
+			default:
+				if speckChance <= 0 {
+					continue
+				}
+				if w.rng.Float64() >= speckChance {
+					continue
+				}
+				w.placeLava(idx, minLife, maxLife)
+			}
+		}
+	}
+}
+
+func (w *World) placeLava(idx int, minLife, maxLife int) {
+	if idx < 0 || idx >= len(w.groundCurr) {
+		return
+	}
+
+	life := minLife
+	if maxLife > minLife {
+		life += w.rng.Intn(maxLife - minLife + 1)
+	}
+	if life < 1 {
+		life = 1
+	}
+	if life > 255 {
+		life = 255
+	}
+
+	w.groundCurr[idx] = GroundLava
+	if idx < len(w.lavaLife) {
+		w.lavaLife[idx] = uint8(life)
+	}
+	if idx < len(w.vegCurr) {
+		w.vegCurr[idx] = VegetationNone
+	}
+	if idx < len(w.vegNext) {
+		w.vegNext[idx] = VegetationNone
+	}
+	if idx < len(w.burnTTL) {
+		w.burnTTL[idx] = 0
+	}
+	if idx < len(w.burnNext) {
+		w.burnNext[idx] = 0
+	}
+	if idx < len(w.display) {
+		w.display[idx] = uint8(GroundLava)
+	}
 }
 
 func (w *World) spawnVolcanoProtoRegion() {
