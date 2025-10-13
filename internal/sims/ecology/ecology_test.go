@@ -84,6 +84,132 @@ func TestResetDeterministic(t *testing.T) {
 	}
 }
 
+func TestFireBurnsOutAndClears(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Width = 3
+	cfg.Height = 1
+	cfg.Seed = 1
+	cfg.Params.GrassPatchCount = 0
+	cfg.Params.FireSpreadChance = 0
+	cfg.Params.BurnTTL = 2
+
+	world := NewWithConfig(cfg)
+	world.Reset(0)
+
+	world.vegCurr[1] = VegetationTree
+	copy(world.vegNext, world.vegCurr)
+
+	world.IgniteAt(1, 0)
+	if got := int(world.burnTTL[1]); got != cfg.Params.BurnTTL {
+		t.Fatalf("expected ignition to set burn ttl to %d, got %d", cfg.Params.BurnTTL, got)
+	}
+
+	world.Step()
+	if got := int(world.burnTTL[1]); got != cfg.Params.BurnTTL-1 {
+		t.Fatalf("expected burn ttl to decrement, got %d", got)
+	}
+	if world.vegCurr[1] != VegetationTree {
+		t.Fatalf("vegetation should remain until burn completes, got %v", world.vegCurr[1])
+	}
+
+	world.Step()
+	if world.burnTTL[1] != 0 {
+		t.Fatalf("expected burn to expire, ttl=%d", world.burnTTL[1])
+	}
+	if world.vegCurr[1] != VegetationNone {
+		t.Fatalf("expected vegetation to clear after burn, got %v", world.vegCurr[1])
+	}
+}
+
+func TestFireSpreadsToNeighbor(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Width = 3
+	cfg.Height = 1
+	cfg.Seed = 2
+	cfg.Params.GrassPatchCount = 0
+	cfg.Params.FireSpreadChance = 1
+	cfg.Params.BurnTTL = 2
+	cfg.Params.GrassSpreadChance = 0
+	cfg.Params.ShrubGrowthChance = 0
+	cfg.Params.TreeGrowthChance = 0
+
+	world := NewWithConfig(cfg)
+	world.Reset(0)
+
+	world.vegCurr[0] = VegetationGrass
+	world.vegCurr[1] = VegetationGrass
+	copy(world.vegNext, world.vegCurr)
+
+	world.IgniteAt(0, 0)
+	world.Step()
+
+	if world.burnTTL[0] == 0 {
+		t.Fatalf("source tile should still be burning, ttl=%d", world.burnTTL[0])
+	}
+	if world.burnTTL[1] == 0 {
+		t.Fatalf("neighbor tile should ignite when spread chance is 1")
+	}
+	if world.vegCurr[1] != VegetationGrass {
+		t.Fatalf("vegetation should remain until burn completes, got %v", world.vegCurr[1])
+	}
+}
+
+func TestLavaIgnitesAdjacentVegetation(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Width = 3
+	cfg.Height = 1
+	cfg.Seed = 3
+	cfg.Params.GrassPatchCount = 0
+	cfg.Params.FireLavaIgniteChance = 1
+	cfg.Params.FireSpreadChance = 0
+	cfg.Params.GrassSpreadChance = 0
+	cfg.Params.ShrubGrowthChance = 0
+	cfg.Params.TreeGrowthChance = 0
+
+	world := NewWithConfig(cfg)
+	world.Reset(0)
+
+	world.groundCurr[1] = GroundLava
+	world.lavaLife[1] = 5
+	world.vegCurr[0] = VegetationShrub
+	copy(world.vegNext, world.vegCurr)
+
+	world.Step()
+
+	if world.burnTTL[0] == 0 {
+		t.Fatalf("expected lava-adjacent vegetation to ignite")
+	}
+}
+
+func TestRainPreventsLavaIgnitionWhenFullyWet(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Width = 3
+	cfg.Height = 1
+	cfg.Seed = 4
+	cfg.Params.GrassPatchCount = 0
+	cfg.Params.FireLavaIgniteChance = 1
+	cfg.Params.FireSpreadChance = 0
+	cfg.Params.FireRainSpreadDampen = 1
+	cfg.Params.GrassSpreadChance = 0
+	cfg.Params.ShrubGrowthChance = 0
+	cfg.Params.TreeGrowthChance = 0
+
+	world := NewWithConfig(cfg)
+	world.Reset(0)
+
+	world.groundCurr[1] = GroundLava
+	world.lavaLife[1] = 5
+	world.vegCurr[0] = VegetationTree
+	world.rainCurr[0] = 1
+	copy(world.vegNext, world.vegCurr)
+
+	world.Step()
+
+	if world.burnTTL[0] != 0 {
+		t.Fatalf("rain dampening should prevent lava ignition, ttl=%d", world.burnTTL[0])
+	}
+}
+
 func TestVegetationSpreadFromSeed(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Width = 4

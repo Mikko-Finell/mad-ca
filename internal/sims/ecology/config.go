@@ -14,6 +14,11 @@ type Params struct {
 	LavaLifeMax int
 	BurnTTL     int
 
+	FireSpreadChance         float64
+	FireLavaIgniteChance     float64
+	FireRainSpreadDampen     float64
+	FireRainExtinguishChance float64
+
 	GrassNeighborThreshold int
 	GrassSpreadChance      float64
 	ShrubNeighborThreshold int
@@ -39,20 +44,24 @@ func DefaultConfig() Config {
 		Height: 256,
 		Seed:   1337,
 		Params: Params{
-			RockChance:             0.05,
-			GrassPatchCount:        12,
-			GrassPatchRadiusMin:    2,
-			GrassPatchRadiusMax:    5,
-			GrassPatchDensity:      0.6,
-			LavaLifeMin:            12,
-			LavaLifeMax:            32,
-			BurnTTL:                3,
-			GrassNeighborThreshold: 1,
-			GrassSpreadChance:      0.25,
-			ShrubNeighborThreshold: 3,
-			ShrubGrowthChance:      0.04,
-			TreeNeighborThreshold:  3,
-			TreeGrowthChance:       0.02,
+			RockChance:               0.05,
+			GrassPatchCount:          12,
+			GrassPatchRadiusMin:      2,
+			GrassPatchRadiusMax:      5,
+			GrassPatchDensity:        0.6,
+			LavaLifeMin:              12,
+			LavaLifeMax:              32,
+			BurnTTL:                  3,
+			FireSpreadChance:         0.25,
+			FireLavaIgniteChance:     0.8,
+			FireRainSpreadDampen:     0.75,
+			FireRainExtinguishChance: 0.5,
+			GrassNeighborThreshold:   1,
+			GrassSpreadChance:        0.25,
+			ShrubNeighborThreshold:   3,
+			ShrubGrowthChance:        0.04,
+			TreeNeighborThreshold:    3,
+			TreeGrowthChance:         0.02,
 		},
 	}
 }
@@ -122,6 +131,26 @@ func FromMap(cfg map[string]string) Config {
 	if v, ok := cfg["burn_ttl"]; ok {
 		if parsed, err := strconv.Atoi(v); err == nil && parsed >= 0 {
 			c.Params.BurnTTL = parsed
+		}
+	}
+	if v, ok := cfg["fire_spread_chance"]; ok {
+		if parsed, err := strconv.ParseFloat(v, 64); err == nil && parsed >= 0 {
+			c.Params.FireSpreadChance = parsed
+		}
+	}
+	if v, ok := cfg["fire_lava_ignite_chance"]; ok {
+		if parsed, err := strconv.ParseFloat(v, 64); err == nil && parsed >= 0 {
+			c.Params.FireLavaIgniteChance = parsed
+		}
+	}
+	if v, ok := cfg["fire_rain_spread_dampen"]; ok {
+		if parsed, err := strconv.ParseFloat(v, 64); err == nil && parsed >= 0 {
+			c.Params.FireRainSpreadDampen = parsed
+		}
+	}
+	if v, ok := cfg["fire_rain_extinguish_chance"]; ok {
+		if parsed, err := strconv.ParseFloat(v, 64); err == nil && parsed >= 0 {
+			c.Params.FireRainExtinguishChance = parsed
 		}
 	}
 	if v, ok := cfg["grass_neighbor_threshold"]; ok {
