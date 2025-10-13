@@ -13,6 +13,13 @@ type Params struct {
 	LavaLifeMin int
 	LavaLifeMax int
 	BurnTTL     int
+
+	GrassNeighborThreshold int
+	GrassSpreadChance      float64
+	ShrubNeighborThreshold int
+	ShrubGrowthChance      float64
+	TreeNeighborThreshold  int
+	TreeGrowthChance       float64
 }
 
 // Config controls the Ecology simulation dimensions.
@@ -32,14 +39,20 @@ func DefaultConfig() Config {
 		Height: 256,
 		Seed:   1337,
 		Params: Params{
-			RockChance:          0.05,
-			GrassPatchCount:     12,
-			GrassPatchRadiusMin: 2,
-			GrassPatchRadiusMax: 5,
-			GrassPatchDensity:   0.6,
-			LavaLifeMin:         12,
-			LavaLifeMax:         32,
-			BurnTTL:             3,
+			RockChance:             0.05,
+			GrassPatchCount:        12,
+			GrassPatchRadiusMin:    2,
+			GrassPatchRadiusMax:    5,
+			GrassPatchDensity:      0.6,
+			LavaLifeMin:            12,
+			LavaLifeMax:            32,
+			BurnTTL:                3,
+			GrassNeighborThreshold: 1,
+			GrassSpreadChance:      0.25,
+			ShrubNeighborThreshold: 3,
+			ShrubGrowthChance:      0.04,
+			TreeNeighborThreshold:  3,
+			TreeGrowthChance:       0.02,
 		},
 	}
 }
@@ -109,6 +122,36 @@ func FromMap(cfg map[string]string) Config {
 	if v, ok := cfg["burn_ttl"]; ok {
 		if parsed, err := strconv.Atoi(v); err == nil && parsed >= 0 {
 			c.Params.BurnTTL = parsed
+		}
+	}
+	if v, ok := cfg["grass_neighbor_threshold"]; ok {
+		if parsed, err := strconv.Atoi(v); err == nil && parsed >= 0 {
+			c.Params.GrassNeighborThreshold = parsed
+		}
+	}
+	if v, ok := cfg["grass_spread_chance"]; ok {
+		if parsed, err := strconv.ParseFloat(v, 64); err == nil && parsed >= 0 {
+			c.Params.GrassSpreadChance = parsed
+		}
+	}
+	if v, ok := cfg["shrub_neighbor_threshold"]; ok {
+		if parsed, err := strconv.Atoi(v); err == nil && parsed >= 0 {
+			c.Params.ShrubNeighborThreshold = parsed
+		}
+	}
+	if v, ok := cfg["shrub_growth_chance"]; ok {
+		if parsed, err := strconv.ParseFloat(v, 64); err == nil && parsed >= 0 {
+			c.Params.ShrubGrowthChance = parsed
+		}
+	}
+	if v, ok := cfg["tree_neighbor_threshold"]; ok {
+		if parsed, err := strconv.Atoi(v); err == nil && parsed >= 0 {
+			c.Params.TreeNeighborThreshold = parsed
+		}
+	}
+	if v, ok := cfg["tree_growth_chance"]; ok {
+		if parsed, err := strconv.ParseFloat(v, 64); err == nil && parsed >= 0 {
+			c.Params.TreeGrowthChance = parsed
 		}
 	}
 	return c
