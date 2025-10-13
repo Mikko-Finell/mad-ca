@@ -427,6 +427,7 @@ func TestLavaSpreadFeedsFire(t *testing.T) {
 	cfg.Params.FireLavaIgniteChance = 1
 	cfg.Params.FireSpreadChance = 0
 	cfg.Params.LavaSpreadChance = 1
+	cfg.Params.LavaSpreadMaskFloor = 1
 	cfg.Params.LavaLifeMin = 2
 	cfg.Params.LavaLifeMax = 2
 	cfg.Params.GrassSpreadChance = 0
@@ -457,6 +458,79 @@ func TestLavaSpreadFeedsFire(t *testing.T) {
 	}
 	if world.vegCurr[3] != VegetationGrass {
 		t.Fatalf("vegetation should persist until burn completes, got %v", world.vegCurr[3])
+	}
+}
+
+func TestLavaSpreadRequiresMaskOrFloor(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Width = 3
+	cfg.Height = 1
+	cfg.Seed = 31
+	cfg.Params.GrassPatchCount = 0
+	cfg.Params.LavaSpreadChance = 1
+	cfg.Params.LavaSpreadMaskFloor = 0
+	cfg.Params.LavaCoolingExtra = 0
+
+	world := NewWithConfig(cfg)
+	world.Reset(0)
+
+	world.groundCurr[1] = GroundLava
+	world.lavaLife[1] = 4
+	world.volCurr[0] = 0
+	world.volCurr[1] = 0
+
+	world.applyLava()
+
+	if world.groundCurr[0] == GroundLava {
+		t.Fatal("lava should not spread without mask influence or floor")
+	}
+
+	cfg.Params.LavaSpreadMaskFloor = 1
+	world = NewWithConfig(cfg)
+	world.Reset(0)
+	world.groundCurr[1] = GroundLava
+	world.lavaLife[1] = 4
+	world.volCurr[0] = 0
+	world.volCurr[1] = 0
+
+	world.applyLava()
+
+	if world.groundCurr[0] != GroundLava {
+		t.Fatal("lava should spread when floor guarantees chance")
+	}
+}
+
+func TestLavaCoolingAcceleratesWhenMaskLow(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Width = 1
+	cfg.Height = 1
+	cfg.Seed = 41
+	cfg.Params.GrassPatchCount = 0
+	cfg.Params.LavaSpreadChance = 0
+	cfg.Params.LavaCoolingExtra = 2
+
+	world := NewWithConfig(cfg)
+	world.Reset(0)
+	world.groundCurr[0] = GroundLava
+	world.lavaLife[0] = 5
+	world.volCurr[0] = 0
+
+	world.applyLava()
+
+	if got := int(world.lavaLife[0]); got != 2 {
+		t.Fatalf("expected accelerated cooling outside mask, got lava life %d", got)
+	}
+
+	world = NewWithConfig(cfg)
+	world.Reset(0)
+	world.groundCurr[0] = GroundLava
+	world.lavaLife[0] = 5
+	world.volCurr[0] = 1
+
+	world.applyLava()
+
+	if got := int(world.lavaLife[0]); got != 4 {
+		t.Fatalf("expected minimal cooling under mask, got lava life %d", got)
 	}
 }
 
@@ -588,4 +662,96 @@ func TestVegetationMetricsGrowthCurve(t *testing.T) {
 	if !hasCluster {
 		t.Fatalf("expected at least one cluster larger than size 1, histogram=%v", hist)
 	}
+}
+
+func TestVolcanoCyclesRegression(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Width = 48
+	cfg.Height = 48
+	cfg.Seed = 9001
+	cfg.Params.RockChance = 0.02
+	cfg.Params.GrassPatchCount = 0
+	cfg.Params.GrassSpreadChance = 0
+	cfg.Params.ShrubGrowthChance = 0
+	cfg.Params.TreeGrowthChance = 0
+	cfg.Params.FireSpreadChance = 0
+	cfg.Params.FireLavaIgniteChance = 0
+	cfg.Params.BurnTTL = 1
+	cfg.Params.VolcanoProtoMaxRegions = 1
+	cfg.Params.VolcanoProtoSpawnChance = 0.3
+	cfg.Params.VolcanoProtoTTLMin = 12
+	cfg.Params.VolcanoProtoTTLMax = 12
+	cfg.Params.VolcanoProtoRadiusMin = 12
+	cfg.Params.VolcanoProtoRadiusMax = 12
+	cfg.Params.VolcanoProtoStrengthMin = 0.85
+	cfg.Params.VolcanoProtoStrengthMax = 0.85
+	cfg.Params.VolcanoUpliftChanceBase = 0.06
+	cfg.Params.VolcanoEruptionChanceBase = 1
+	cfg.Params.LavaLifeMin = 10
+	cfg.Params.LavaLifeMax = 14
+	cfg.Params.LavaSpreadChance = 0.22
+	cfg.Params.LavaSpreadMaskFloor = 0.15
+	cfg.Params.LavaCoolingExtra = 1.2
+
+	world := NewWithConfig(cfg)
+	world.Reset(0)
+
+	const steps = 600
+	lavaHistory := make([]int, steps)
+	mountainHistory := make([]int, steps)
+
+	for i := 0; i < steps; i++ {
+		world.Step()
+		lavaHistory[i] = countGroundTiles(world.groundCurr, GroundLava)
+		mountainHistory[i] = countGroundTiles(world.groundCurr, GroundMountain)
+	}
+
+	checkpoints := []struct {
+		tick     int
+		lava     int
+		mountain int
+	}{
+		{tick: 90, lava: 246, mountain: 69},
+		{tick: 179, lava: 366, mountain: 319},
+		{tick: 359, lava: 241, mountain: 810},
+		{tick: 419, lava: 172, mountain: 864},
+		{tick: steps - 1, lava: 179, mountain: 1022},
+	}
+
+	for _, checkpoint := range checkpoints {
+		if lavaHistory[checkpoint.tick] != checkpoint.lava {
+			t.Fatalf("lava count mismatch at tick %d: expected %d, got %d", checkpoint.tick, checkpoint.lava, lavaHistory[checkpoint.tick])
+		}
+		if mountainHistory[checkpoint.tick] != checkpoint.mountain {
+			t.Fatalf("mountain count mismatch at tick %d: expected %d, got %d", checkpoint.tick, checkpoint.mountain, mountainHistory[checkpoint.tick])
+		}
+	}
+
+	maxLava := 0
+	minLava := lavaHistory[0]
+	for _, v := range lavaHistory {
+		if v > maxLava {
+			maxLava = v
+		}
+		if v < minLava {
+			minLava = v
+		}
+	}
+
+	if maxLava != 420 {
+		t.Fatalf("expected lava peak of 420 tiles, got %d", maxLava)
+	}
+	if minLava != 0 {
+		t.Fatalf("expected lava trough to fully cool, min=%d", minLava)
+	}
+}
+
+func countGroundTiles(buf []Ground, target Ground) int {
+	count := 0
+	for _, v := range buf {
+		if v == target {
+			count++
+		}
+	}
+	return count
 }

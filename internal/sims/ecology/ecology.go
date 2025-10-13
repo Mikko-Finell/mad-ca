@@ -743,6 +743,32 @@ func (w *World) applyLava() {
 		maxLife = minLife
 	}
 
+	spreadFloor := w.cfg.Params.LavaSpreadMaskFloor
+	if spreadFloor < 0 {
+		spreadFloor = 0
+	}
+	if spreadFloor > 1 {
+		spreadFloor = 1
+	}
+	coolingExtra := w.cfg.Params.LavaCoolingExtra
+	if coolingExtra < 0 {
+		coolingExtra = 0
+	}
+
+	maskAt := func(idx int) float64 {
+		if idx < 0 || idx >= len(w.volCurr) {
+			return 0
+		}
+		val := float64(w.volCurr[idx])
+		if val < 0 {
+			return 0
+		}
+		if val > 1 {
+			return 1
+		}
+		return val
+	}
+
 	for y := 0; y < w.h; y++ {
 		for x := 0; x < w.w; x++ {
 			idx := y*w.w + x
@@ -750,7 +776,19 @@ func (w *World) applyLava() {
 				continue
 			}
 
-			life := int(w.lavaLife[idx]) - 1
+			maskHere := maskAt(idx)
+			cooling := 1
+			if coolingExtra > 0 {
+				coolingDelta := int(math.Round((1 - maskHere) * coolingExtra))
+				if coolingDelta > 0 {
+					cooling += coolingDelta
+				}
+			}
+			if cooling < 1 {
+				cooling = 1
+			}
+
+			life := int(w.lavaLife[idx]) - cooling
 			if life > 0 {
 				if life > 255 {
 					life = 255
@@ -793,7 +831,20 @@ func (w *World) applyLava() {
 					if ground != GroundDirt && ground != GroundRock {
 						continue
 					}
-					if w.rng.Float64() >= spreadChance {
+					heat := maskHere
+					if targetMask := maskAt(nIdx); targetMask > heat {
+						heat = targetMask
+					}
+					if heat < spreadFloor {
+						heat = spreadFloor
+					} else if heat > 1 {
+						heat = 1
+					}
+					effectiveSpread := spreadChance * heat
+					if effectiveSpread > 1 {
+						effectiveSpread = 1
+					}
+					if w.rng.Float64() >= effectiveSpread {
 						continue
 					}
 
