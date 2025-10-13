@@ -4,6 +4,7 @@ package app
 
 import (
 	"image/color"
+	"math"
 	"time"
 
 	"mad-ca/internal/core"
@@ -31,6 +32,7 @@ type Game struct {
 	sim     core.Sim
 	painter *render.GridPainter
 	overlay *ui.Overlay
+	hud     *ui.HUD
 
 	onColor  color.Color
 	offColor color.Color
@@ -40,25 +42,37 @@ type Game struct {
 	tickOnce bool
 	seed     int64
 
-	igniter Igniter
+	igniter  Igniter
+	hudWidth int
 }
 
 // New constructs a Game for the provided simulation.
 func New(sim core.Sim, scale int, seed int64) *Game {
-	gp := render.NewGridPainter(sim.Size().W, sim.Size().H)
+	if scale <= 0 {
+		scale = 1
+	}
+	size := sim.Size()
+	gp := render.NewGridPainter(size.W, size.H)
 	var igniter Igniter
 	if i, ok := sim.(Igniter); ok {
 		igniter = i
+	}
+	baseWidth := size.W * scale
+	hudWidth := int(math.Round(float64(baseWidth) / 4.0))
+	if baseWidth > 0 && hudWidth == 0 {
+		hudWidth = 1
 	}
 	return &Game{
 		sim:      sim,
 		painter:  gp,
 		overlay:  ui.NewOverlay(sim, scale),
+		hud:      ui.NewHUD(sim, hudWidth),
 		onColor:  color.White,
 		offColor: color.Black,
 		scale:    scale,
 		seed:     seed,
 		igniter:  igniter,
+		hudWidth: hudWidth,
 	}
 }
 
@@ -93,6 +107,9 @@ func (g *Game) Update() error {
 	if g.overlay != nil {
 		g.overlay.Update()
 	}
+	if g.hud != nil {
+		g.hud.Update()
+	}
 
 	if g.igniter != nil && inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 		mx, my := ebiten.CursorPosition()
@@ -120,10 +137,14 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	if g.overlay != nil {
 		g.overlay.Draw(screen)
 	}
+	if g.hud != nil {
+		baseWidth := g.sim.Size().W * g.scale
+		g.hud.Draw(screen, baseWidth, g.scale)
+	}
 }
 
 // Layout returns the logical screen size.
 func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
 	s := g.sim.Size()
-	return s.W * g.scale, s.H * g.scale
+	return s.W*g.scale + g.hudWidth, s.H * g.scale
 }

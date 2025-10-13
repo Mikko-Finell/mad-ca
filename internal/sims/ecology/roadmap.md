@@ -23,6 +23,10 @@
 * World can be initialized (Dirt + Rock sprinkles + Grass seeds + tectonic_map).
 * Params adjustable at runtime; masks exist and are rendered as overlays.
 
+**Notes:**
+
+* HUD parameter snapshot plumbing now surfaces the full config to the app so future controls can adjust values without poking the simulation internals.
+
 ---
 
 ## Phase 2 — Vegetation Succession (No Fire Yet)

@@ -31,11 +31,11 @@ func main() {
 	sim.Reset(cfg.Seed)
 
 	game := app.New(sim, cfg.Scale, cfg.Seed)
-	size := sim.Size()
+	width, height := game.Layout(0, 0)
 
 	ebiten.SetWindowTitle("mad-ca — " + sim.Name())
 	ebiten.SetTPS(cfg.TPS)
-	ebiten.SetWindowSize(size.W*cfg.Scale, size.H*cfg.Scale)
+	ebiten.SetWindowSize(width, height)
 
 	if err := ebiten.RunGame(game); err != nil && !errors.Is(err, ebiten.Termination) {
 		log.Fatal(err)
