@@ -279,7 +279,7 @@ func (h *HUD) drawControls() {
 		bounds := text.BoundString(face, value)
 		valueWidth := bounds.Dx()
 		valueX := state.minusRect.Min.X - buttonGap - valueWidth
-		valueY := top + labelBaseline
+		valueY := top + valueBaseline
 		text.Draw(h.panel, value, face, valueX, valueY, valueColor)
 
 		minusEnabled := state.hasValue && h.canAdjust(state, -1)
@@ -368,7 +368,7 @@ func (h *HUD) layoutControls() {
 	}
 	for i := range h.controls {
 		top := controlsTop + i*lineHeight
-		buttonY := top + (lineHeight-buttonSize)/2
+		buttonY := top + buttonRowTop
 		plusRect := image.Rect(h.width-panelPadding-buttonSize, buttonY, h.width-panelPadding, buttonY+buttonSize)
 		minusRect := image.Rect(plusRect.Min.X-buttonGap-buttonSize, buttonY, plusRect.Min.X-buttonGap, buttonY+buttonSize)
 		h.controls[i].top = top
@@ -415,11 +415,13 @@ type hudControlState struct {
 
 const (
 	panelPadding   = 12
-	lineHeight     = 36
+	lineHeight     = 68
 	buttonSize     = 24
 	buttonGap      = 6
 	headerBaseline = 18
 	labelBaseline  = 24
+	valueBaseline  = 46
+	buttonRowTop   = 32
 	infoSpacing    = 36
 	controlsTop    = panelPadding + headerBaseline + 14
 )

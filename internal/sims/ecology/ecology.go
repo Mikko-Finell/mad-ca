@@ -113,7 +113,8 @@ func (w *World) ParameterControls() []core.ParameterControl {
 		floatControl("rain_spawn_chance", "Rain spawn chance", 0.01, 0, 0.2),
 		floatControl("rain_strength_max", "Rain strength max", 0.05, 0, 1),
 		floatControl("lava_spread_chance", "Lava spread chance", 0.05, 0, 1),
-		floatControl("volcano_proto_spawn_chance", "Volcano spawn chance", 0.01, 0, 0.5),
+		floatControl("volcano_proto_spawn_chance", "Volcano proto spawn chance", 0.01, 0, 0.5),
+		floatControl("volcano_eruption_chance_base", "Volcano eruption chance", 0.01, 0, 1),
 		intControl("lava_life_min", "Lava life min", 1, 1, 90),
 		intControl("lava_life_max", "Lava life max", 1, 1, 120),
 		intControl("burn_ttl", "Burn duration", 1, 1, 10),
@@ -181,6 +182,9 @@ func (w *World) SetFloatParameter(key string, value float64) bool {
 		return true
 	case "volcano_proto_spawn_chance":
 		w.cfg.Params.VolcanoProtoSpawnChance = clampFloat(value, 0, 0.5)
+		return true
+	case "volcano_eruption_chance_base":
+		w.cfg.Params.VolcanoEruptionChanceBase = clampFloat(value, 0, 1)
 		return true
 	default:
 		return false

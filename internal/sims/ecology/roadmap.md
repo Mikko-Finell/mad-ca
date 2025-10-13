@@ -118,6 +118,7 @@
 **Notes:**
 
 * Proto-volcano lifecycle now consumes proto expirations to trigger eruptions that seed lava cores, uplift rims, and clear vegetation while feeding the lava system. Lava spread and cooling now scale with the volcano mask so flows stay localized and cool between eruptions, rain-driven cooling bonuses feed into the lava step, and the long-run regression now exercises mixed rain/volcano scenarios. Next step: begin Phase 5 by introducing regional rain events that rasterize into the rain mask and drive the remaining multipliers.
+* HUD exposes an adjustable volcano eruption base chance so tuning sessions can readily force eruptions when needed.
 
 ---
 
