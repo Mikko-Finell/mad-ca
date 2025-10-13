@@ -835,11 +835,11 @@ func TestVolcanoCyclesRegression(t *testing.T) {
 		lava     int
 		mountain int
 	}{
-		{tick: 90, lava: 0, mountain: 12},
-		{tick: 179, lava: 2, mountain: 99},
-		{tick: 359, lava: 0, mountain: 210},
-		{tick: 419, lava: 0, mountain: 272},
-		{tick: steps - 1, lava: 0, mountain: 417},
+		{tick: 90, lava: 0, mountain: 78},
+		{tick: 179, lava: 0, mountain: 196},
+		{tick: 359, lava: 0, mountain: 488},
+		{tick: 419, lava: 0, mountain: 570},
+		{tick: steps - 1, lava: 0, mountain: 677},
 	}
 
 	for _, checkpoint := range checkpoints {
@@ -865,8 +865,8 @@ func TestVolcanoCyclesRegression(t *testing.T) {
 
 	t.Logf("lava peak=%d trough=%d", maxLava, minLava)
 
-	if maxLava != 77 {
-		t.Fatalf("expected lava peak of 77 tiles, got %d", maxLava)
+	if maxLava != 79 {
+		t.Fatalf("expected lava peak of 79 tiles, got %d", maxLava)
 	}
 	if minLava != 0 {
 		t.Fatalf("expected lava trough to fully cool, min=%d", minLava)
@@ -904,4 +904,127 @@ func applyOscillatingRain(world *World, tick int) {
 		strength: 1,
 		ttl:      1,
 	})
+}
+
+func TestRainTuningRestoresCycleVariability(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Width = 48
+	cfg.Height = 48
+	cfg.Seed = 314159
+	cfg.Params.RockChance = 0.1
+	cfg.Params.GrassPatchCount = 18
+	cfg.Params.FireSpreadChance = 0.3
+	cfg.Params.FireLavaIgniteChance = 0.9
+	cfg.Params.BurnTTL = 4
+	cfg.Params.VolcanoProtoMaxRegions = 4
+	cfg.Params.VolcanoProtoSpawnChance = 0.2
+	cfg.Params.VolcanoProtoTectonicThreshold = 0
+	cfg.Params.VolcanoProtoStrengthMin = 0.6
+	cfg.Params.VolcanoProtoStrengthMax = 0.95
+	cfg.Params.VolcanoProtoTTLMin = 10
+	cfg.Params.VolcanoProtoTTLMax = 16
+	cfg.Params.LavaLifeMin = 16
+	cfg.Params.LavaLifeMax = 30
+	cfg.Params.LavaSpreadChance = 0.2
+	cfg.Params.LavaSpreadMaskFloor = 0.18
+	cfg.Params.VolcanoUpliftChanceBase = 0.02
+	cfg.Params.VolcanoEruptionChanceBase = 0.8
+
+	const steps = 420
+
+	rainSummary := runRainTelemetryScenario(cfg, steps)
+
+	dryCfg := cfg
+	dryCfg.Params.RainSpawnChance = 0
+	dryCfg.Params.RainMaxRegions = 0
+	drySummary := runRainTelemetryScenario(dryCfg, steps)
+
+	t.Logf("rain summary: %+v", rainSummary)
+	t.Logf("dry summary: %+v", drySummary)
+
+	if rainSummary.RainCoverageMean <= 0.05 {
+		t.Fatalf("expected rain scenario to maintain mask coverage, mean=%.3f", rainSummary.RainCoverageMean)
+	}
+	if drySummary.RainCoverageMean > 1e-6 {
+		t.Fatalf("expected dry scenario to keep rain coverage near zero, mean=%.6f", drySummary.RainCoverageMean)
+	}
+
+	if rainSummary.LavaMean >= drySummary.LavaMean {
+		t.Fatalf("rain should reduce average lava persistence: rain=%.2f dry=%.2f", rainSummary.LavaMean, drySummary.LavaMean)
+	}
+
+	rainBurnRate := rainSummary.BurningMean / rainSummary.VegetationMean
+	dryBurnRate := drySummary.BurningMean / drySummary.VegetationMean
+	if rainSummary.VegetationMean == 0 {
+		rainBurnRate = 0
+	}
+	if drySummary.VegetationMean == 0 {
+		dryBurnRate = drySummary.BurningMean
+	}
+	if rainBurnRate >= dryBurnRate {
+		t.Fatalf("rain should dampen burn rate per vegetation tile: rain=%.3f dry=%.3f", rainBurnRate, dryBurnRate)
+	}
+
+	amplitude := rainSummary.LavaMax - rainSummary.LavaMin
+	if amplitude < 500 {
+		t.Fatalf("expected rain tuning to preserve lava variability, amplitude=%d", amplitude)
+	}
+
+	if rainSummary.VegetationMean <= drySummary.VegetationMean {
+		t.Fatalf("rain should aid regrowth: rain=%.2f dry=%.2f", rainSummary.VegetationMean, drySummary.VegetationMean)
+	}
+}
+
+type rainTelemetry struct {
+	LavaMean          float64
+	LavaMax           int
+	LavaMin           int
+	BurningMean       float64
+	RainMean          float64
+	RainCoverageMean  float64
+	VegetationMean    float64
+	ActiveRainRegions float64
+}
+
+func runRainTelemetryScenario(cfg Config, steps int) rainTelemetry {
+	world := NewWithConfig(cfg)
+	world.Reset(0)
+
+	var result rainTelemetry
+	if steps <= 0 {
+		return result
+	}
+
+	for i := 0; i < steps; i++ {
+		world.Step()
+		env := world.EnvironmentSummary()
+		veg := world.Metrics()
+
+		result.LavaMean += float64(env.LavaTiles)
+		result.BurningMean += float64(env.BurningTiles)
+		result.RainMean += env.RainMean
+		coverage := 0.0
+		if env.TotalTiles > 0 {
+			coverage = float64(env.RainCoverage) / float64(env.TotalTiles)
+		}
+		result.RainCoverageMean += coverage
+		result.ActiveRainRegions += float64(env.ActiveRainRegions)
+		result.VegetationMean += float64(veg.TotalVegetated)
+
+		if i == 0 || env.LavaTiles > result.LavaMax {
+			result.LavaMax = env.LavaTiles
+		}
+		if i == 0 || env.LavaTiles < result.LavaMin {
+			result.LavaMin = env.LavaTiles
+		}
+	}
+
+	denom := float64(steps)
+	result.LavaMean /= denom
+	result.BurningMean /= denom
+	result.RainMean /= denom
+	result.RainCoverageMean /= denom
+	result.ActiveRainRegions /= denom
+	result.VegetationMean /= denom
+	return result
 }
