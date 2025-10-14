@@ -53,7 +53,7 @@
 
 * Implemented helper-based neighbor counting and per-tick succession updates with unit tests covering spread and stage advancement.
 * Added vegetation telemetry (per-stage counts and cluster histogram) with deterministic regression tests verifying growth curve and patchiness.
-* Default grass spread chance now starts at 100%, so the initial seeding phase quickly knits together meadows for subsequent succession tuning.
+* Default grass spread chance now starts at 1%, leaving ample room to tune early meadow growth while still allowing gradual colonization.
 
 **Exit Criteria**
 
@@ -118,7 +118,7 @@
 
 **Notes:**
 
-* Proto-volcano lifecycle now consumes proto expirations to trigger eruptions that seed lava cores, uplift rims, and clear vegetation. The lava subsystem now carries thickness/temperature/heading data, advances tips along slopes with channel reinforcement, handles pooling and crusting, and vents maintain core flux. Rain both penalizes forward scoring and boosts cooling, and new tests cover vent seeding, cooling/crusting, channel reinforcement, and lava-driven ignition.
+* Proto-volcano lifecycle now consumes proto expirations to trigger eruptions that seed lava cores, uplift rims, and clear vegetation. Manual volcano spawns now erupt instantly so debug placements can build a lava field without waiting on proto timers. The lava subsystem now carries thickness/temperature/heading data, advances tips along slopes with channel reinforcement, handles pooling and crusting, and vents maintain core flux. Rain both penalizes forward scoring and boosts cooling, and new tests cover vent seeding, cooling/crusting, channel reinforcement, and lava-driven ignition.
 * HUD exposes an adjustable volcano eruption base chance so tuning sessions can readily force eruptions when needed.
 * Lava persistence now leans on reservoir-fed vents and flux-aware cooling so crater pools linger while flowing rivers stay molten. The HUD snapshot exposes the new cooling and reservoir parameters for future tuning passes.
 * **Follow-up:** Focus on river shaping—channel-biased flow scoring, smarter overflow spokes, and telemetry for reservoir mass/flux to validate the new persistence model.
