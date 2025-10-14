@@ -555,8 +555,71 @@ func (w *World) ParameterControls() []core.ParameterControl {
 			HasMax: true,
 		},
 		{
+			Key:    "lava_cool_base",
+			Label:  "Lava base cooling",
+			Type:   core.ParamTypeFloat,
+			Min:    0,
+			Max:    0.1,
+			HasMin: true,
+			HasMax: true,
+		},
+		{
+			Key:    "lava_cool_flux",
+			Label:  "Lava flux cooling",
+			Type:   core.ParamTypeFloat,
+			Min:    0,
+			Max:    0.1,
+			HasMin: true,
+			HasMax: true,
+		},
+		{
+			Key:    "lava_reservoir_head",
+			Label:  "Lava reservoir head",
+			Type:   core.ParamTypeFloat,
+			Min:    0,
+			Max:    6,
+			HasMin: true,
+			HasMax: true,
+		},
+		{
+			Key:    "lava_flux_ref",
+			Label:  "Lava flux reference",
+			Type:   core.ParamTypeFloat,
+			Min:    0.1,
+			Max:    8,
+			HasMin: true,
+			HasMax: true,
+		},
+		{
 			Key:    "volcano_proto_spawn_chance",
 			Label:  "Volcano proto spawn chance",
+			Type:   core.ParamTypeFloat,
+			Min:    0,
+			Max:    100,
+			HasMin: true,
+			HasMax: true,
+		},
+		{
+			Key:    "volcano_proto_strength_min",
+			Label:  "Volcano proto strength min",
+			Type:   core.ParamTypeFloat,
+			Min:    0,
+			Max:    1,
+			HasMin: true,
+			HasMax: true,
+		},
+		{
+			Key:    "volcano_proto_strength_max",
+			Label:  "Volcano proto strength max",
+			Type:   core.ParamTypeFloat,
+			Min:    0,
+			Max:    1,
+			HasMin: true,
+			HasMax: true,
+		},
+		{
+			Key:    "volcano_uplift_chance_base",
+			Label:  "Volcano uplift chance",
 			Type:   core.ParamTypeFloat,
 			Min:    0,
 			Max:    100,
@@ -649,8 +712,43 @@ func (w *World) SetFloatParameter(key string, value float64) bool {
 	case "lava_spread_chance":
 		w.cfg.Params.LavaSpreadChance = percentToProbability(value)
 		return true
+	case "lava_cool_base":
+		w.cfg.Params.LavaCoolBase = clampFloat(value, 0, 0.1)
+		return true
+	case "lava_cool_flux":
+		w.cfg.Params.LavaCoolFlux = clampFloat(value, 0, 0.1)
+		return true
+	case "lava_reservoir_head":
+		w.cfg.Params.LavaReservoirHead = clampFloat(value, 0, 6)
+		return true
+	case "lava_flux_ref":
+		if value < 0.1 {
+			value = 0.1
+		}
+		if value > 8 {
+			value = 8
+		}
+		w.cfg.Params.LavaFluxRef = value
+		return true
 	case "volcano_proto_spawn_chance":
 		w.cfg.Params.VolcanoProtoSpawnChance = percentToProbability(value)
+		return true
+	case "volcano_proto_strength_min":
+		clamped := clampFloat(value, 0, 1)
+		if clamped > w.cfg.Params.VolcanoProtoStrengthMax {
+			clamped = w.cfg.Params.VolcanoProtoStrengthMax
+		}
+		w.cfg.Params.VolcanoProtoStrengthMin = clamped
+		return true
+	case "volcano_proto_strength_max":
+		clamped := clampFloat(value, 0, 1)
+		if clamped < w.cfg.Params.VolcanoProtoStrengthMin {
+			w.cfg.Params.VolcanoProtoStrengthMin = clamped
+		}
+		w.cfg.Params.VolcanoProtoStrengthMax = clamped
+		return true
+	case "volcano_uplift_chance_base":
+		w.cfg.Params.VolcanoUpliftChanceBase = percentToProbability(value)
 		return true
 	case "volcano_eruption_chance_base":
 		w.cfg.Params.VolcanoEruptionChanceBase = percentToProbability(value)
@@ -890,6 +988,26 @@ func (w *World) Step() {
 	w.spawnVolcanoProtoRegion()
 
 	w.rebuildDisplay()
+}
+
+func midpointInt(min, max int) int {
+	if max < min {
+		max = min
+	}
+	if min == max {
+		return min
+	}
+	return min + (max-min)/2
+}
+
+func midpointFloat(min, max float64) float64 {
+	if max < min {
+		max = min
+	}
+	if min == max {
+		return min
+	}
+	return min + (max-min)/2
 }
 
 func (w *World) updateRainMask() {
@@ -3298,6 +3416,52 @@ func (w *World) IgniteAt(x, y int) {
 	}
 	w.burnTTL[idx] = uint8(ttl)
 	w.rebuildDisplay()
+}
+
+// SpawnVolcanoAt seeds a proto-volcano region centered on the provided coordinates.
+func (w *World) SpawnVolcanoAt(x, y int) {
+	if x < 0 || y < 0 || x >= w.w || y >= w.h {
+		return
+	}
+
+	params := w.cfg.Params
+	radiusMin := params.VolcanoProtoRadiusMin
+	if radiusMin <= 0 {
+		radiusMin = 1
+	}
+	radius := float64(radiusMin)
+	if params.VolcanoProtoRadiusMax > radiusMin {
+		radius = float64(midpointInt(radiusMin, params.VolcanoProtoRadiusMax))
+	}
+
+	ttlMin := params.VolcanoProtoTTLMin
+	if ttlMin <= 0 {
+		ttlMin = 1
+	}
+	ttl := ttlMin
+	if params.VolcanoProtoTTLMax > ttlMin {
+		ttl = midpointInt(ttlMin, params.VolcanoProtoTTLMax)
+	}
+
+	strengthMin := clampFloat(params.VolcanoProtoStrengthMin, 0, 1)
+	strengthMax := clampFloat(params.VolcanoProtoStrengthMax, 0, 1)
+	if strengthMax < strengthMin {
+		strengthMax = strengthMin
+	}
+	strength := strengthMin
+	if strengthMax > strengthMin {
+		strength = midpointFloat(strengthMin, strengthMax)
+	}
+
+	region := volcanoProtoRegion{
+		cx:       float64(x) + 0.5,
+		cy:       float64(y) + 0.5,
+		radius:   radius,
+		strength: strength,
+		ttl:      ttl,
+		noise:    w.rng.Int63(),
+	}
+	w.volcanoRegions = append(w.volcanoRegions, region)
 }
 
 // Metrics exposes the latest vegetation telemetry.

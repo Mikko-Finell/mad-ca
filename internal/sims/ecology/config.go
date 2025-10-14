@@ -117,7 +117,7 @@ func DefaultConfig() Config {
 			WindSpeedScale:                0.6,
 			WindTemporalScale:             0.05,
 			GrassNeighborThreshold:        1,
-			GrassSpreadChance:             0.25,
+			GrassSpreadChance:             1,
 			ShrubNeighborThreshold:        3,
 			ShrubGrowthChance:             0.04,
 			TreeNeighborThreshold:         3,

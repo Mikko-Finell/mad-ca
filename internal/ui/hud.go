@@ -120,6 +120,9 @@ func buildTitle(sim core.Sim) string {
 	if name == "" {
 		return "Controls"
 	}
+	if strings.EqualFold(name, "ecology") {
+		return ""
+	}
 	return fmt.Sprintf("%s Controls", strings.Title(name))
 }
 
@@ -389,6 +392,9 @@ func (h *HUD) drawButton(rect image.Rectangle, label string, enabled bool) {
 }
 
 func (h *HUD) controlsTop() int {
+	if strings.TrimSpace(h.title) == "" {
+		return panelPadding
+	}
 	return panelPadding + headerBaseline + headerGap
 }
 
