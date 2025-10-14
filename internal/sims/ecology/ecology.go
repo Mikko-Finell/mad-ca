@@ -163,8 +163,6 @@ type lavaCandidate struct {
 
 const (
 	lavaMaxHeight          = 7
-	lavaVentLifetimeMin    = 20
-	lavaVentLifetimeMax    = 40
 	lavaFluxPerTick        = 1
 	lavaFlowThreshold      = 0.9
 	lavaSplitThresholdDrop = 0.15
@@ -571,6 +569,7 @@ func (w *World) SetIntParameter(key string, value int) bool {
 			w.cfg.Params.LavaLifeMax = value
 		}
 		w.cfg.Params.LavaLifeMin = value
+		w.clampVentLifetimes()
 		return true
 	case "lava_life_max":
 		if value < w.cfg.Params.LavaLifeMin {
@@ -580,6 +579,7 @@ func (w *World) SetIntParameter(key string, value int) bool {
 			value = 1
 		}
 		w.cfg.Params.LavaLifeMax = value
+		w.clampVentLifetimes()
 		return true
 	case "burn_ttl":
 		if value < 1 {
@@ -589,6 +589,33 @@ func (w *World) SetIntParameter(key string, value int) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func (w *World) clampVentLifetimes() {
+	if w == nil {
+		return
+	}
+	if len(w.lavaVents) == 0 {
+		return
+	}
+	minLife := w.cfg.Params.LavaLifeMin
+	if minLife < 1 {
+		minLife = 1
+	}
+	maxLife := w.cfg.Params.LavaLifeMax
+	if maxLife < minLife {
+		maxLife = minLife
+	}
+	for i := range w.lavaVents {
+		ttl := w.lavaVents[i].ttl
+		if ttl < minLife {
+			ttl = minLife
+		}
+		if ttl > maxLife {
+			ttl = maxLife
+		}
+		w.lavaVents[i].ttl = ttl
 	}
 }
 
@@ -2180,11 +2207,20 @@ func (w *World) eruptRegion(region volcanoProtoRegion) {
 	})
 
 	w.lavaVents = w.lavaVents[:0]
+	lifeMin := w.cfg.Params.LavaLifeMin
+	if lifeMin < 1 {
+		lifeMin = 1
+	}
+	lifeMax := w.cfg.Params.LavaLifeMax
+	if lifeMax < lifeMin {
+		lifeMax = lifeMin
+	}
+
 	for i := 0; i < vents; i++ {
 		idx := coreCells[i]
-		ttl := lavaVentLifetimeMin
-		if lavaVentLifetimeMax > lavaVentLifetimeMin {
-			ttl += w.rng.Intn(lavaVentLifetimeMax - lavaVentLifetimeMin + 1)
+		ttl := lifeMin
+		if lifeMax > lifeMin {
+			ttl += w.rng.Intn(lifeMax - lifeMin + 1)
 		}
 		outIdx, dir, downhill := w.pickDownhill(idx)
 		if !downhill {

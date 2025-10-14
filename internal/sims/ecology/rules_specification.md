@@ -156,7 +156,7 @@ Burning tiles skip succession until extinguished. Metrics update after writing `
 `DefaultConfig()` creates a 256×256 world with deterministic seed 1337 and the parameter pack in `config.go`. Highlights include:
 
 * Terrain: `RockChance` 5 %, grass patch count 12 with radii 2–5 and density 0.6.【F:internal/sims/ecology/config.go†L64-L88】
-* Lava lifespan 12–32 ticks (`LavaLifeMin/Max`) and spread floor `LavaSpreadMaskFloor` 0.2 (currently unused but exposed for tuning).【F:internal/sims/ecology/config.go†L64-L83】
+* Lava vent lifetime defaults to 20–40 ticks (`LavaLifeMin/Max`), and spread floor `LavaSpreadMaskFloor` 0.2 (currently unused but exposed for tuning).【F:internal/sims/ecology/config.go†L64-L83】
 * Wind: `WindNoiseScale` 0.01, `WindSpeedScale` 0.6, `WindTemporalScale` 0.05.【F:internal/sims/ecology/config.go†L80-L98】
 * All parameters are adjustable at runtime via the HUD parameter snapshot plumbing, and `FromMap` supports overriding values from CLI-style maps.【F:internal/sims/ecology/config.go†L120-L323】
 

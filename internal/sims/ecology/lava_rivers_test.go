@@ -59,11 +59,65 @@ func TestEruptionSeedsLavaRivers(t *testing.T) {
 		t.Fatal("expected eruption to create active vents")
 	}
 	for _, vent := range world.lavaVents {
-		if vent.ttl < lavaVentLifetimeMin || vent.ttl > lavaVentLifetimeMax {
+		if vent.ttl < cfg.Params.LavaLifeMin || vent.ttl > cfg.Params.LavaLifeMax {
 			t.Fatalf("vent ttl out of range: %d", vent.ttl)
 		}
 		if vent.outIdx < 0 || vent.outIdx >= len(world.groundCurr) {
 			t.Fatalf("vent out index out of bounds: %d", vent.outIdx)
+		}
+	}
+}
+
+func TestLavaLifeParametersClampActiveVents(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Width = 9
+	cfg.Height = 9
+	cfg.Params.GrassPatchCount = 0
+	cfg.Params.VolcanoProtoSpawnChance = 0
+
+	world := NewWithConfig(cfg)
+	world.Reset(0)
+
+	for i := range world.groundCurr {
+		world.groundCurr[i] = GroundRock
+		world.display[i] = uint8(GroundRock)
+	}
+
+	region := volcanoProtoRegion{
+		cx:       4.5,
+		cy:       4.5,
+		radius:   3,
+		strength: 1,
+		ttl:      0,
+	}
+
+	world.eruptRegion(region)
+
+	if len(world.lavaVents) == 0 {
+		t.Fatal("expected eruption to create active vents")
+	}
+
+	if !world.SetIntParameter("lava_life_min", 5) {
+		t.Fatal("failed to set lava life min")
+	}
+	if !world.SetIntParameter("lava_life_max", 5) {
+		t.Fatal("failed to set lava life max")
+	}
+	for _, vent := range world.lavaVents {
+		if vent.ttl != 5 {
+			t.Fatalf("expected vent ttl to clamp to new range, got %d", vent.ttl)
+		}
+	}
+
+	if !world.SetIntParameter("lava_life_max", 400) {
+		t.Fatal("failed to expand lava life max")
+	}
+	if !world.SetIntParameter("lava_life_min", 300) {
+		t.Fatal("failed to expand lava life min")
+	}
+	for _, vent := range world.lavaVents {
+		if vent.ttl < 300 || vent.ttl > 400 {
+			t.Fatalf("expected vent ttl within expanded range, got %d", vent.ttl)
 		}
 	}
 }
