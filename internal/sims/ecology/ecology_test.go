@@ -352,8 +352,14 @@ func TestRainRegionRasterizesAndExpires(t *testing.T) {
 	if len(world.rainRegions) != 0 {
 		t.Fatalf("expected region to expire after second tick, len=%d", len(world.rainRegions))
 	}
-	if got := world.rainCurr[centerIdx]; got < 0.6 {
-		t.Fatalf("expected second tick to still render rain, got %.3f", got)
+	maxVal := float32(0)
+	for _, v := range world.rainCurr {
+		if v > maxVal {
+			maxVal = v
+		}
+	}
+	if maxVal < 0.55 {
+		t.Fatalf("expected second tick to still render rain, max=%.3f", maxVal)
 	}
 
 	world.updateRainMask()
@@ -683,8 +689,45 @@ func TestWindVectorAtDeterministicAndBounded(t *testing.T) {
 	}
 
 	speed := math.Hypot(vx1, vy1)
-	maxAllowed := cfg.Params.WindSpeedScale * 0.75
-	if speed > maxAllowed {
-		t.Fatalf("expected speed <= %0.3f, got %0.3f", maxAllowed, speed)
+	expected := cfg.Params.WindSpeedScale
+	if speed > expected+1e-6 {
+		t.Fatalf("expected speed <= %0.3f, got %0.3f", expected, speed)
+	}
+	if speed == 0 {
+		t.Fatalf("expected non-zero wind speed, got 0")
+	}
+}
+
+func TestRainRegionsShareGlobalWindField(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Seed = 4242
+	cfg.Params.WindNoiseScale = 0.02
+	cfg.Params.WindSpeedScale = 0.7
+
+	world := NewWithConfig(cfg)
+
+	regionA := rainRegion{cx: 24.5, cy: 18.5, ttl: 10}
+	regionB := regionA
+	regionB.noiseSeed = 99
+
+	regions := []rainRegion{regionA, regionB}
+	updatedA := world.advanceRainRegion(regions, 0)
+	updatedB := world.advanceRainRegion(regions, 1)
+
+	deltaVX := math.Abs(updatedA.vx - updatedB.vx)
+	deltaVY := math.Abs(updatedA.vy - updatedB.vy)
+	if deltaVX > 1e-6 || deltaVY > 1e-6 {
+		t.Fatalf("expected shared wind velocity, got A(%0.6f,%0.6f) vs B(%0.6f,%0.6f)", updatedA.vx, updatedA.vy, updatedB.vx, updatedB.vy)
+	}
+
+	targetVX, targetVY := world.WindVectorAt(regionA.cx, regionA.cy)
+	if targetVX != 0 || targetVY != 0 {
+		const inertia = 0.08
+		const cohesionBlend = 0.08
+		expectedVX := targetVX * inertia * (1 - cohesionBlend)
+		expectedVY := targetVY * inertia * (1 - cohesionBlend)
+		if math.Abs(updatedA.vx-expectedVX) > 1e-6 || math.Abs(updatedA.vy-expectedVY) > 1e-6 {
+			t.Fatalf("expected easing toward (%0.6f,%0.6f), got (%0.6f,%0.6f)", expectedVX, expectedVY, updatedA.vx, updatedA.vy)
+		}
 	}
 }

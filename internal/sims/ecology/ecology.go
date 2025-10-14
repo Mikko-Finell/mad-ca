@@ -69,6 +69,8 @@ type World struct {
 	expiredVolcanoProtos []volcanoProtoRegion
 	lavaVents            []lavaVent
 
+	windPhase float64
+
 	lavaTipQueue      []int
 	lavaFailedTips    []int
 	lavaAdvancedCells []int
@@ -712,7 +714,7 @@ func (w *World) WindVectorAt(x, y float64) (float64, float64) {
 	if w == nil {
 		return 0, 0
 	}
-	return w.windVector(x, y, w.cfg.Seed)
+	return w.windVector(x, y)
 }
 
 // TectonicMap exposes the static tectonic baseline values.
@@ -728,6 +730,7 @@ func (w *World) Reset(seed int64) {
 		effective = w.cfg.Seed
 	}
 	w.rng.Seed(effective)
+	w.windPhase = 0
 	total := w.w * w.h
 	for i := 0; i < total; i++ {
 		w.groundCurr[i] = GroundDirt
@@ -805,6 +808,8 @@ func (w *World) Step() {
 	if w.w == 0 || w.h == 0 {
 		return
 	}
+
+	w.windPhase++
 
 	w.updateRainMask()
 	w.updateVolcanoMask()
@@ -1148,7 +1153,7 @@ func (w *World) advanceRainRegion(regions []rainRegion, index int) rainRegion {
 		region.radiusY = 1
 	}
 
-	targetVX, targetVY := w.windVector(region.cx, region.cy, region.noiseSeed)
+	targetVX, targetVY := w.windVector(region.cx, region.cy)
 	const inertia = 0.08
 	region.vx = lerp(region.vx, targetVX, inertia)
 	region.vy = lerp(region.vy, targetVY, inertia)
@@ -1501,7 +1506,7 @@ func (w *World) makeRainRegion() rainRegion {
 	cx := float64(w.rng.Intn(w.w)) + 0.5
 	cy := float64(w.rng.Intn(w.h)) + 0.5
 	seed := w.rng.Int63()
-	vx, vy := w.windVector(cx, cy, seed)
+	vx, vy := w.windVector(cx, cy)
 
 	strengthVariation := 0.1 + w.rng.Float64()*0.1
 	noiseOffsetX := (w.rng.Float64()*2 - 1) * 5
@@ -1543,39 +1548,67 @@ func (w *World) makeRainRegion() rainRegion {
 	return region
 }
 
-func (w *World) windVector(x, y float64, seed int64) (float64, float64) {
+const (
+	windCurlEpsilon   = 1e-6
+	windTemporalScale = 0.05
+)
+
+func (w *World) windVector(x, y float64) (float64, float64) {
 	scale := w.cfg.Params.WindNoiseScale
-	if scale <= 0 {
+	speed := w.cfg.Params.WindSpeedScale
+	if scale <= 0 || speed <= 0 {
 		return 0, 0
 	}
-	frequency := scale * 0.5
-	if frequency <= 0 {
-		frequency = scale
+
+	phase := w.windPhase * windTemporalScale
+	h := 1.0 / scale
+
+	phiXP := w.windPotentialAt(x+h, y, scale, phase)
+	phiXM := w.windPotentialAt(x-h, y, scale, phase)
+	phiYP := w.windPotentialAt(x, y+h, scale, phase)
+	phiYM := w.windPotentialAt(x, y-h, scale, phase)
+
+	dphidx := (phiXP - phiXM) / (2 * h)
+	dphidy := (phiYP - phiYM) / (2 * h)
+
+	curlX := dphidy
+	curlY := -dphidx
+	magnitude := math.Hypot(curlX, curlY)
+	if magnitude < windCurlEpsilon {
+		return 0, 0
 	}
-	offsets := [...]struct{ ox, oy float64 }{
-		{0, 0},
-		{0.8, 0},
-		{-0.8, 0},
-		{0, 0.8},
-		{0, -0.8},
-		{0.8, 0.8},
-		{-0.8, 0.8},
-		{0.8, -0.8},
-		{-0.8, -0.8},
-	}
-	var sumX, sumY float64
-	for _, off := range offsets {
-		sampleX := fbmNoise2D((x+off.ox)*frequency, (y+off.oy)*frequency, 3, 0.5, 1.6, seed+17)
-		sampleY := fbmNoise2D((x+off.ox+300)*frequency, (y+off.oy-300)*frequency, 3, 0.5, 1.6, seed+53)
-		sumX += sampleX
-		sumY += sampleY
-	}
-	avgX := sumX / float64(len(offsets))
-	avgY := sumY / float64(len(offsets))
-	amplitude := w.cfg.Params.WindSpeedScale
-	vx := (avgX - 0.5) * amplitude
-	vy := (avgY - 0.5) * amplitude
+
+	invMag := 1.0 / magnitude
+	vx := curlX * invMag * speed
+	vy := curlY * invMag * speed
+
 	return vx, vy
+}
+
+func (w *World) windPotentialAt(x, y, scale, phase float64) float64 {
+	return fbmNoise3D(x*scale, y*scale, phase, 4, 0.5, 1.9, w.cfg.Seed)
+}
+
+func fbmNoise3D(x, y, z float64, octaves int, gain, lacunarity float64, seed int64) float64 {
+	if octaves <= 0 {
+		return 0.5
+	}
+	amplitude := 1.0
+	frequency := 1.0
+	sum := 0.0
+	ampAccum := 0.0
+	for i := 0; i < octaves; i++ {
+		n := perlin3D(x*frequency, y*frequency, z*frequency, seed+int64(i)*67)
+		sum += n * amplitude
+		ampAccum += amplitude
+		amplitude *= gain
+		frequency *= lacunarity
+	}
+	if ampAccum == 0 {
+		return 0.5
+	}
+	value := sum / ampAccum
+	return value*0.5 + 0.5
 }
 
 func fbmNoise2D(x, y float64, octaves int, gain, lacunarity float64, seed int64) float64 {
@@ -1598,6 +1631,74 @@ func fbmNoise2D(x, y float64, octaves int, gain, lacunarity float64, seed int64)
 	}
 	value := sum / ampAccum
 	return value*0.5 + 0.5
+}
+
+var perlin3DGradients = [...]struct{ x, y, z float64 }{
+	{1, 1, 0},
+	{-1, 1, 0},
+	{1, -1, 0},
+	{-1, -1, 0},
+	{1, 0, 1},
+	{-1, 0, 1},
+	{1, 0, -1},
+	{-1, 0, -1},
+	{0, 1, 1},
+	{0, -1, 1},
+	{0, 1, -1},
+	{0, -1, -1},
+}
+
+func perlin3D(x, y, z float64, seed int64) float64 {
+	x0 := math.Floor(x)
+	y0 := math.Floor(y)
+	z0 := math.Floor(z)
+
+	xf := x - x0
+	yf := y - y0
+	zf := z - z0
+
+	ix0 := int64(x0)
+	iy0 := int64(y0)
+	iz0 := int64(z0)
+	ix1 := ix0 + 1
+	iy1 := iy0 + 1
+	iz1 := iz0 + 1
+
+	g000 := gradDot3D(ix0, iy0, iz0, xf, yf, zf, seed)
+	g100 := gradDot3D(ix1, iy0, iz0, xf-1, yf, zf, seed)
+	g010 := gradDot3D(ix0, iy1, iz0, xf, yf-1, zf, seed)
+	g110 := gradDot3D(ix1, iy1, iz0, xf-1, yf-1, zf, seed)
+	g001 := gradDot3D(ix0, iy0, iz1, xf, yf, zf-1, seed)
+	g101 := gradDot3D(ix1, iy0, iz1, xf-1, yf, zf-1, seed)
+	g011 := gradDot3D(ix0, iy1, iz1, xf, yf-1, zf-1, seed)
+	g111 := gradDot3D(ix1, iy1, iz1, xf-1, yf-1, zf-1, seed)
+
+	u := fade(xf)
+	v := fade(yf)
+	w := fade(zf)
+
+	x00 := lerp(g000, g100, u)
+	x10 := lerp(g010, g110, u)
+	x01 := lerp(g001, g101, u)
+	x11 := lerp(g011, g111, u)
+
+	interpY0 := lerp(x00, x10, v)
+	interpY1 := lerp(x01, x11, v)
+
+	return lerp(interpY0, interpY1, w)
+}
+
+func gradDot3D(ix, iy, iz int64, dx, dy, dz float64, seed int64) float64 {
+	grad := perlin3DGradients[hash3D(ix, iy, iz, seed)%uint32(len(perlin3DGradients))]
+	return grad.x*dx + grad.y*dy + grad.z*dz
+}
+
+func hash3D(x, y, z, seed int64) uint32 {
+	n := uint64(x)*0x9e3779b97f4a7c15 + uint64(y)*0xbf58476d1ce4e5b9 + uint64(z)*0x94d049bb133111eb + uint64(seed)*0xda942042e4dd58b5
+	n = (n ^ (n >> 30)) * 0xbf58476d1ce4e5b9
+	n = (n ^ (n >> 27)) * 0x94d049bb133111eb
+	n ^= n >> 31
+	return uint32(n & 0xffffffff)
 }
 
 func perlin2D(x, y float64, seed int64) float64 {
