@@ -21,6 +21,10 @@ type windFieldProvider interface {
 	WindVectorAt(x, y float64) (float64, float64)
 }
 
+type elevationFieldProvider interface {
+	ElevationField() []int16
+}
+
 // Overlay draws optional debugging visuals on top of the base simulation.
 type Overlay struct {
 	sim         core.Sim
@@ -28,8 +32,12 @@ type Overlay struct {
 	showRain    bool
 	showVolcano bool
 	showWind    bool
+	showElev    bool
 	maskImg     *ebiten.Image
 	maskBuf     []byte
+
+	elevationImg *ebiten.Image
+	elevationBuf []byte
 
 	pixel          *ebiten.Image
 	windSamples    []windSample
@@ -65,6 +73,9 @@ func (o *Overlay) Update() {
 	if inpututil.IsKeyJustPressed(ebiten.KeyDigit3) {
 		o.showWind = !o.showWind
 	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyDigit4) {
+		o.showElev = !o.showElev
+	}
 }
 
 // Draw renders the overlay onto the provided screen.
@@ -81,6 +92,12 @@ func (o *Overlay) Draw(screen *ebiten.Image) {
 	if o.showWind {
 		if provider, ok := o.sim.(windFieldProvider); ok {
 			o.drawWindField(screen, provider, size, scale)
+		}
+	}
+
+	if o.showElev {
+		if provider, ok := o.sim.(elevationFieldProvider); ok {
+			o.drawElevation(screen, provider.ElevationField(), size, scale)
 		}
 	}
 
@@ -335,6 +352,92 @@ func (o *Overlay) drawMask(screen *ebiten.Image, mask []float32, tint color.RGBA
 	screen.DrawImage(o.maskImg, op)
 }
 
+func (o *Overlay) drawElevation(screen *ebiten.Image, field []int16, size core.Size, scale int) {
+	total := size.W * size.H
+	if len(field) != total || total == 0 {
+		return
+	}
+	if o.elevationImg == nil || o.elevationImg.Bounds().Dx() != size.W || o.elevationImg.Bounds().Dy() != size.H {
+		o.elevationImg = ebiten.NewImage(size.W, size.H)
+		o.elevationBuf = make([]byte, 4*total)
+	} else if len(o.elevationBuf) != 4*total {
+		o.elevationBuf = make([]byte, 4*total)
+	}
+
+	minVal := field[0]
+	maxVal := field[0]
+	for _, v := range field {
+		if v < minVal {
+			minVal = v
+		}
+		if v > maxVal {
+			maxVal = v
+		}
+	}
+	rangeVal := float64(maxVal - minVal)
+	if rangeVal == 0 {
+		rangeVal = 1
+	}
+	slopeScale := 0.0
+	if maxVal > minVal {
+		slopeScale = 1.0 / rangeVal
+	}
+
+	for y := 0; y < size.H; y++ {
+		for x := 0; x < size.W; x++ {
+			idx := y*size.W + x
+			base := idx * 4
+			normalized := clamp01(float64(field[idx]-minVal) / rangeVal)
+			col := elevationColor(normalized)
+
+			alpha := float64(col.A)
+			if slopeScale > 0 {
+				baseVal := int(field[idx])
+				maxDiff := 0
+				if x > 0 {
+					diff := absInt(baseVal - int(field[idx-1]))
+					if diff > maxDiff {
+						maxDiff = diff
+					}
+				}
+				if x+1 < size.W {
+					diff := absInt(baseVal - int(field[idx+1]))
+					if diff > maxDiff {
+						maxDiff = diff
+					}
+				}
+				if y > 0 {
+					diff := absInt(baseVal - int(field[idx-size.W]))
+					if diff > maxDiff {
+						maxDiff = diff
+					}
+				}
+				if y+1 < size.H {
+					diff := absInt(baseVal - int(field[idx+size.W]))
+					if diff > maxDiff {
+						maxDiff = diff
+					}
+				}
+				slope := clamp01(float64(maxDiff) * slopeScale)
+				alpha *= 0.55 + 0.45*slope
+			}
+
+			o.elevationBuf[base+0] = col.R
+			o.elevationBuf[base+1] = col.G
+			o.elevationBuf[base+2] = col.B
+			o.elevationBuf[base+3] = uint8(math.Round(clamp(alpha, 0, 255)))
+		}
+	}
+
+	o.elevationImg.ReplacePixels(o.elevationBuf)
+	op := &ebiten.DrawImageOptions{}
+	if scale <= 0 {
+		scale = 1
+	}
+	op.GeoM.Scale(float64(scale), float64(scale))
+	screen.DrawImage(o.elevationImg, op)
+}
+
 func interpolateColor(t float64) color.RGBA {
 	t = clamp01(t)
 	r := uint8(math.Round(80 + 70*t))
@@ -363,4 +466,62 @@ func scaleColorComponent(value uint8, factor float64) uint8 {
 		return 255
 	}
 	return uint8(scaled)
+}
+
+func elevationColor(t float64) color.RGBA {
+	t = clamp01(t)
+	stops := []struct {
+		t   float64
+		col color.RGBA
+	}{
+		{0.0, color.RGBA{R: 40, G: 60, B: 120, A: 150}},
+		{0.25, color.RGBA{R: 70, G: 105, B: 160, A: 165}},
+		{0.5, color.RGBA{R: 90, G: 150, B: 100, A: 185}},
+		{0.75, color.RGBA{R: 190, G: 160, B: 80, A: 205}},
+		{1.0, color.RGBA{R: 240, G: 235, B: 215, A: 215}},
+	}
+	for i := 1; i < len(stops); i++ {
+		curr := stops[i]
+		if t <= curr.t {
+			prev := stops[i-1]
+			span := curr.t - prev.t
+			var local float64
+			if span > 0 {
+				local = (t - prev.t) / span
+			}
+			return lerpRGBA(prev.col, curr.col, clamp01(local))
+		}
+	}
+	return stops[len(stops)-1].col
+}
+
+func lerpRGBA(a, b color.RGBA, t float64) color.RGBA {
+	t = clamp01(t)
+	return color.RGBA{
+		R: lerpComponent(a.R, b.R, t),
+		G: lerpComponent(a.G, b.G, t),
+		B: lerpComponent(a.B, b.B, t),
+		A: lerpComponent(a.A, b.A, t),
+	}
+}
+
+func lerpComponent(a, b uint8, t float64) uint8 {
+	return uint8(math.Round(float64(a) + (float64(b)-float64(a))*t))
+}
+
+func absInt(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
+
+func clamp(v, min, max float64) float64 {
+	if v < min {
+		return min
+	}
+	if v > max {
+		return max
+	}
+	return v
 }
