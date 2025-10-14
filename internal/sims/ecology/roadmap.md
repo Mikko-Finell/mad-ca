@@ -153,6 +153,7 @@
 * Rain masks now render drifting noise-shaped cloud blobs with inertia-smooth drift, coherent neighborhood flow, stabilized silhouettes, and strengthened morphology cleanup to eliminate spray artifacts; documentation updated to match.
 * Latest tuning lowered the noise gate to τ≈0.35–0.45 with a smoothstep blend, enforces solid cores, and widens the morphology closing radius to 2px to plug noise pinholes.
 * HUD now surfaces wind noise and speed controls so storm drift can be dialed in live during tuning sessions.
+* Added a HUD slider for the wind temporal scale so the curl-noise phase spin can be slowed during tuning while keeping the default value near the top of the range to match prior visuals.
 * HUD renders a wind vector overlay to visualize current drift averages for active storm regions.
 * Rain drift and the HUD overlay now sample a single world-seed wind field (curl of an fBm potential), so every storm follows the same streamlines the overlay depicts.
 * HUD parameter buttons now auto-scale their step sizes, present chance values as 0–100%, and no longer clamp tuning ranges with arbitrary ceilings.

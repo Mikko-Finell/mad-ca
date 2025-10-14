@@ -495,6 +495,15 @@ func (w *World) ParameterControls() []core.ParameterControl {
 			HasMin: true,
 		},
 		{
+			Key:    "wind_temporal_scale",
+			Label:  "Wind temporal scale",
+			Type:   core.ParamTypeFloat,
+			Min:    0,
+			Max:    0.06,
+			HasMin: true,
+			HasMax: true,
+		},
+		{
 			Key:    "lava_spread_chance",
 			Label:  "Lava spread chance",
 			Type:   core.ParamTypeFloat,
@@ -622,6 +631,12 @@ func (w *World) SetFloatParameter(key string, value float64) bool {
 			value = 0
 		}
 		w.cfg.Params.WindSpeedScale = value
+		return true
+	case "wind_temporal_scale":
+		if value < 0 {
+			value = 0
+		}
+		w.cfg.Params.WindTemporalScale = value
 		return true
 	case "lava_spread_chance":
 		w.cfg.Params.LavaSpreadChance = percentToProbability(value)
@@ -1549,8 +1564,7 @@ func (w *World) makeRainRegion() rainRegion {
 }
 
 const (
-	windCurlEpsilon   = 1e-6
-	windTemporalScale = 0.05
+	windCurlEpsilon = 1e-6
 )
 
 func (w *World) windVector(x, y float64) (float64, float64) {
@@ -1560,7 +1574,7 @@ func (w *World) windVector(x, y float64) (float64, float64) {
 		return 0, 0
 	}
 
-	phase := w.windPhase * windTemporalScale
+	phase := w.windPhase * w.cfg.Params.WindTemporalScale
 	h := 1.0 / scale
 
 	phiXP := w.windPotentialAt(x+h, y, scale, phase)
