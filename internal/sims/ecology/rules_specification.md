@@ -1,175 +1,209 @@
-# 🌋 Cellular Automata Ecology Simulation — Rules Specification
+# 🌋 Cellular Automata Ecology Simulation
+
+### Version 1.1 — Regional Events Edition
 
 ## 1. Overview
 
-The ecology simulation is a deterministic 2‑D cellular automaton that couples vegetation succession, wildfire, volcanic activity, lava flow, and regional rainfall. Each tick blends stochastic choices (driven by the world seed) with tunable parameters so that the landscape cycles through growth, disturbance, and recovery.
+This 2-D cellular automaton models the evolution of an **ecological-geological landscape**: vegetation growth, forest fires, volcanic activity, and rainfall.
+It is not meant as a pure mathematical automaton but as a simulation-style system whose rules yield plausible terrain cycles: grasslands spreading, forests forming, volcanoes erupting, lava cooling, and regrowth after disturbance.
 
 ---
 
-## 2. World Representation
+## 2. World Structure
 
-### 2.1 Discrete layers
+| Layer               | States               | Notes                             |          |       |                        |
+| ------------------- | -------------------- | --------------------------------- | -------- | ----- | ---------------------- |
+| **Ground**          | `Dirt                | Rock                              | Mountain | Lava` | Mutually exclusive.    |
+| **Vegetation**      | `None                | Grass                             | Shrub    | Tree` | Independent of ground. |
+| **Transient flags** | `Burning`, `RainWet` | Short-lived, derived from events. |          |       |                        |
 
-| Layer        | States (enum order)                     | Notes |
-| ------------ | --------------------------------------- | ----- |
-| **Ground**   | `Dirt`, `Rock`, `Mountain`, `Lava`      | Exactly one per tile. `Lava` cells also store lava field data. |
-| **Vegetation** | `None`, `Grass`, `Shrub`, `Tree`      | Updated after fire/lava processing each tick. |
+**Neighborhood:** Moore (8 neighbors)
+**Ticking:** Deterministic; use seeded PRNG for stochastic rules.
+**Simulation order:**
 
-### 2.2 Per-tile auxiliary fields
-
-| Field                | Type / Range             | Purpose |
-| -------------------- | ------------------------ | ------- |
-| `lavaHeight`         | uint8 (0–7)              | Flow thickness. Zero when tile is not lava. |
-| `lavaTemp`           | float32 (0–1)            | Cooling drives solidification. |
-| `lavaDir`            | int8 (−1=no flow, 0–7 direction) | Heading index for advancing tips. |
-| `lavaTip`            | bool                     | Marks active flow fronts. |
-| `lavaForce`          | bool                     | Forces overflow advancement when height ≥4. |
-| `lavaChannel`        | float32 (≥0)             | Memory of prior flow that biases routing. |
-| `lavaElevation`      | int16                    | Pseudo-elevation raster constructed per eruption. |
-| `burnTTL`            | uint8 (ticks remaining)  | Non-zero values denote burning vegetation. |
-| `rainMask`           | float32 [0,1]            | Influence map rasterized from active rain regions. |
-| `volcanoMask`        | float32 [0,1]            | Influence map rasterized from proto-volcano regions. |
-
-### 2.3 Regional & global data
-
-* `rainRegions`: active drifting rain clouds.
-* `volcanoRegions`: active proto-volcano uplift regions.
-* `expiredVolcanoProtos`: recently expired uplift regions awaiting eruption checks.
-* `lavaVents`: active vents injecting lava into flow fields.
-* `tectonic`: static 0–1 raster used to bias volcano spawning.
-* Deterministic wind phase drives a curl-noise wind field shared by rain motion and HUD overlays.
+1. Build region masks (rain & volcano)
+2. Tectonics / volcano uplift & eruptions
+3. Lava spread & cooling
+4. Fire ignition & propagation
+5. Vegetation succession & spread
+6. Cleanup & region spawning
 
 ---
 
-## 3. Simulation Step
+## 3. Environmental Fields
 
-Each call to `Step()` performs the phases below in order. All random draws come from the seed-stable RNG stored on the world.
+Optional continuous maps influencing probabilities:
 
-| Order | Phase | Key effects |
-| ----- | ----- | ----------- |
-| 1 | **Rain mask update** | Advance rain regions, merge overlaps, rasterize masks, and run morphology cleanup. |
-| 2 | **Volcano mask update** | Advance proto-volcano regions, rasterize uplift mask, collect expired regions. |
-| 3 | **Uplift** | Convert `Rock`→`Mountain` using volcano mask weights. |
-| 4 | **Eruptions** | Expired proto regions may erupt, seeding lava cores/vents and rebuilding lava elevation. |
-| 5 | **Lava dynamics** | Vent injection, flow advancement, pooling, cooling, and channel decay/growth. |
-| 6 | **Fire** | Update burning TTLs, extinction, spread, and lava-ignited fires. |
-| 7 | **Vegetation succession** | Apply growth transitions for non-burning tiles using neighbor counts. |
-| 8 | **Region spawning** | Attempt to spawn new rain and proto-volcano regions. |
-| 9 | **Display/metrics** | Refresh cached render buffers and aggregate vegetation metrics. |
+| Field               | Range | Role                                     |
+| ------------------- | ----- | ---------------------------------------- |
+| `tectonic_map[x,y]` | 0–1   | drives mountain uplift & volcano seeding |
+| `RainMask[x,y]`     | 0–1   | produced by regional rain events         |
+| `VolcanoMask[x,y]`  | 0–1   | produced by proto-volcano regions        |
 
 ---
 
-## 4. Regional Rain Events
+## 4. Region Events
 
-### 4.1 Spawning & lifecycle
+### 4.1 Concept
 
-* At most `RainMaxRegions` storms can exist (default 4). Up to two spawn attempts occur each tick, limited by remaining capacity.【F:internal/sims/ecology/ecology.go†L1087-L1112】【F:internal/sims/ecology/config.go†L80-L98】
-* Each attempt rolls `RainSpawnChance` (default 0.22). Coverage above 15 % introduces a skip chance up to 90 % so storms thin out when the map is saturated.【F:internal/sims/ecology/ecology.go†L1113-L1135】
-* Regions carry `ttl`, age, base strength, elliptical radii, perlin noise offsets, wind velocity, and a preset that shapes geometry.【F:internal/sims/ecology/ecology.go†L1141-L1494】
-* Wind advection eases velocity toward the curl-noise wind vector with inertia 0.08 and caps step length at 0.8 tiles/tick. Nearby storms (<50 tiles) gently align velocities (cohesion blend 0.08).【F:internal/sims/ecology/ecology.go†L1204-L1256】
-* Strength oscillates with a sine envelope whose swing is 10–20 % of the base value, giving natural ramp-up and decay.【F:internal/sims/ecology/ecology.go†L1268-L1283】
+A **RegionEvent** defines an area-scale temporary influence.
 
-### 4.2 Presets
+```
+kind: "Rain" | "VolcanoProto"
+cx, cy : float
+r       : float
+falloff : "gaussian" | "linear" | "flat"
+strength: float  (0–1)
+ttl     : int    // ticks remaining
+noiseSeed: int   // for irregular edges
+```
 
-`makeRainRegion` selects among:
-
-| Preset  | Traits |
-| ------- | ------ |
-| **Puffy** (55 % chance) | Radius sampled 16–40, circular, falloff 1.12–1.20. |
-| **Stratus** (30 %) | Flattened band (`radiusY ≈ 0.6 × radiusX`), softer noise and falloff 1.08–1.16. |
-| **Squall** (15 %) | Fast, elongated storm (`radiusX` up to 1.5× max, `radiusY` 10–16, TTL forced to 8–15 ticks). |
-
-Base strength rolls between `max(0.5, RainStrengthMin)` and `RainStrengthMax` (defaults 0.5–1.0). Radii respect config limits (16–40 by default) and world size.【F:internal/sims/ecology/ecology.go†L1426-L1494】【F:internal/sims/ecology/config.go†L80-L98】
-
-### 4.3 Overlap & morphology
-
-* Storms whose overlap ratio exceeds 0.15 trigger blending: the larger cloud grows, gains +0.1 target strength, and both enter an 8-tick merge window while the smaller fades out.【F:internal/sims/ecology/ecology.go†L904-L940】
-* Rasterization samples fBm noise (octaves=3) and radial distance. Noise values are thresholded with `smoothstep(threshold±0.1)` where threshold ∈ [0.42,0.52], guaranteeing solid cores (radial <0.45 → full opacity). Final mask value is `smoothstep(0,1,1−radial^falloff) × strength` with falloff ≈1.05–1.23.【F:internal/sims/ecology/ecology.go†L957-L1050】
-* Morphological cleanup performs a 3px closing, 1px opening, then removes islands smaller than 25 cells (values >0.05).【F:internal/sims/ecology/ecology.go†L1222-L1287】
-
-### 4.4 Coupling into simulation
-
-* Lava cooling subtracts `ΔT = 0.02 + 0.03·edge + 0.08·rain + 0.02·thicknessSigmoid` (+0.02 if the cell is pooling).【F:internal/sims/ecology/ecology.go†L2772-L2811】
-* Lava flow scoring penalizes rain via `score -= 0.5 × rain` before comparing against the flow threshold (0.9).【F:internal/sims/ecology/ecology.go†L2606-L2643】
-* Fire spread and lava ignition chances are multiplied by `1 − FireRainSpreadDampen × rain` (clamped to [0,1]); default dampen is 0.75.【F:internal/sims/ecology/ecology.go†L2897-L2978】【F:internal/sims/ecology/config.go†L80-L98】
-* Burning tiles extinguish with probability `FireRainExtinguishChance × rain` each tick (default 0.5).【F:internal/sims/ecology/ecology.go†L2930-L2957】
+Each tick, events rasterize into their masks; when `ttl==0` they expire.
 
 ---
 
-## 5. Volcano Proto Regions & Eruptions
+### 4.2 Rain Regions
 
-### 5.1 Spawning
+* Spawn 0–2 new regions per tick (cap ≈4 active). Spawn is suppressed when existing clouds already cover >15% of the map.
+* Each region spans radius 16–40 tiles (anisotropic variants stretch axes) and lasts 12–30 ticks by default. Squall presets use 8–15 ticks.
+* Mask geometry combines a **soft noise gate** with smooth radial falloff: `R(x,y) = clamp(smoothstep(τ-Δ, τ+Δ, fbm((x,y))) * smoothstep(0,1,1-(d/R)^p) * strength, 0,1)` with `p≈1.3–1.5`, `τ≈0.35–0.45`, `Δ≈0.08`, and per-region noise seeds. Radii inside `d/R < 0.35` are forced to full opacity before the falloff so cloud cores never punch through. Small specks are removed with a 2px morphological closing pass.
+* Regions advect each tick under a shared divergence-free wind field `W(x,y,t)` built from the world seed (curl of an fBm potential). Velocity eases toward the sampled vector with α≈0.08, capped at 0.8 tiles/tick, and the HUD overlay samples the same field so the arrows match cloud motion. `WindSpeedScale` sets the base speed, `WindTemporalScale` controls how quickly the noise phase advances (default ≈0.05, exposed on the HUD slider near its top end), and strength still eases in/out (~±15%). Overlapping clouds (>20% shared area) are merged by max-blending and the larger cloud absorbs the smaller (strength +0.1, capped at 1.0).
+* Presets provide variety: puffy (round), stratus (flattened band, stretched noise), and squall (elongated major axis, faster drift).
 
-* At most `VolcanoProtoMaxRegions` uplift zones persist (default 6). Each tick rolls `VolcanoProtoSpawnChance` (default 0.02); success selects the noisiest high-tectonic tile among eight samples. Spawns require tectonic ≥ `VolcanoProtoTectonicThreshold` (default 0.6).【F:internal/sims/ecology/ecology.go†L2219-L2272】【F:internal/sims/ecology/config.go†L100-L118】
-* Radius samples `VolcanoProtoRadiusMin`–`Max` (default 10–22). `ttl` samples `VolcanoProtoTTLMin`–`Max` (default 10–25). Strength samples `VolcanoProtoStrengthMin`–`Max` and is clamped ≤1.【F:internal/sims/ecology/ecology.go†L2266-L2307】【F:internal/sims/ecology/config.go†L100-L118】
+**Effects (sample R = RainMask[x,y]):**
 
-### 5.2 Mask & uplift
+| Rule               | Multiplier         |
+| ------------------ | ------------------ |
+| Lava cooling bonus | `+8 × R` per tick  |
+| Ignite/spread prob | `× (1 − 0.75 × R)` |
+| Extinguish chance  | `0.5 × R`          |
 
-* Rasterization writes a linear falloff disc into the volcano mask each tick: `value = strength × (1 − distance/radius)` (clamped to [0,1]).【F:internal/sims/ecology/ecology.go†L1865-L1914】
-* During uplift, every `Rock` cell rolls `VolcanoUpliftChanceBase × mask` (default base 2e-5) to convert to `Mountain`.【F:internal/sims/ecology/ecology.go†L1916-L1950】【F:internal/sims/ecology/config.go†L100-L118】
-
-### 5.3 Eruptions
-
-* When a proto region expires, it computes the mean mask value across its footprint. An eruption occurs if a random roll < `VolcanoEruptionChanceBase × mean`, default base 5e-5.【F:internal/sims/ecology/ecology.go†L1952-L2006】【F:internal/sims/ecology/config.go†L100-L118】
-* Eruptions clear existing lava, rebuild elevation, and seed:
-  * **Core** (`r < 0.35R`): lava cells with height 2–3, temperature 1.0, and queued as tips.
-  * **Rim** (`0.35R–0.9R`): `Rock` becomes `Mountain`.
-  * **Vents**: 1–3 vents pick random core cells, run 20–40 ticks, inject 1 unit of lava per tick, and set initial outflow headings along downslope neighbors.【F:internal/sims/ecology/ecology.go†L2008-L2254】
+Rain thus cools lava and damps fires smoothly across its gradient.
 
 ---
 
-## 6. Lava Dynamics
+### 4.3 Volcano Proto Regions
 
-* **Injection:** Each vent increases its tile’s lava height (capped at 7) and temperature to 1.0. Neighboring outflow cells inherit at least height 1, become lava, and are marked as tips. Vegetation and burning data on affected cells are cleared immediately.【F:internal/sims/ecology/ecology.go†L2336-L2408】
-* **Tip advancement:** Tips attempt to move forward each tick. The movement chance is `lavaBaseSpeed × temp / (1 + lavaSpeedAlpha × height)` unless forced by overflow. Candidate destinations score `1.0·slope + 0.6·alignment + 0.8·channel − 0.5·rain − 2.0·uphill`. Moves proceed when the best score ≥0.9 (or ≥0 when forced). If the source column is tall enough (height ≥3) and a second candidate scores within 0.75, a split may spawn an extra branch (25 % chance).【F:internal/sims/ecology/ecology.go†L2568-L2709】
-* **Pooling & overflow:** Failed tips thicken the trunk (up to height 7). They may fill adjacent low cells with stationary pools (`dir = -1`), which cool faster and can overflow later.【F:internal/sims/ecology/ecology.go†L2711-L2759】
-* **Cooling & crusting:** Temperature falls by the formula in §4.4. When `temp ≤ 0.15`, thick flows shed one unit of height; once height reaches 1, cooled lava solidifies to `Rock`. Heat is clamped to ≤0.35 when crusting so flows can restart gently if reheated.【F:internal/sims/ecology/ecology.go†L2772-L2823】
-* **Channel memory:** Tiles that advanced gain +0.15 channel weight (clamped ≤1). Global decay (0.5 % per tick) keeps flow paths semi-permanent without locking them forever.【F:internal/sims/ecology/ecology.go†L2825-L2844】
-* **Tip detection:** After updates, tips are recomputed using temperature, height, and local lava connectivity (≤2 lava neighbors).【F:internal/sims/ecology/ecology.go†L2846-L2881】
+Volcano formation is a **two-phase process**.
 
----
+#### Phase A – Proto (uplift)
 
-## 7. Fire System
+* Spawn region where tectonic_map is high.
+* Radius 10–22, lifetime 10–25 ticks, nearly flat falloff with slight jitter.
+* Each tick: if `ground==Rock` and random < `2×P_uplift_base×V`, convert to `Mountain`.
+* Uplift probability may peak near the rim to form a caldera.
 
-* Burning tiles count down `BurnTTL` (default 3). When the counter hits zero the vegetation becomes `None` and the display reverts to the ground layer.【F:internal/sims/ecology/ecology.go†L2890-L2968】【F:internal/sims/ecology/config.go†L72-L98】
-* Spread attempts visit all Moore neighbors. Each vegetation tile not already burning rolls `FireSpreadChance` (default 0.25) scaled by the rain modifier described in §4.4. Successful ignitions enqueue TTL = `BurnTTL` (clamped ≤255).【F:internal/sims/ecology/ecology.go†L2968-L3017】
-* Lava ignition checks vegetation adjacent to lava tiles and applies `FireLavaIgniteChance` (default 0.8) with the same rain damping. Ignitions write TTL directly into `burnNext`.【F:internal/sims/ecology/ecology.go†L3019-L3073】【F:internal/sims/ecology/config.go†L72-L98】
+#### Phase B – Eruption
 
----
+When proto expires:
 
-## 8. Vegetation Succession
+* Compute mean mask value V̄.
+* With chance `P_erupt_base×V̄`, erupt:
 
-Vegetation updates after fire, using cached Moore neighbor counts for grass and shrubs.
-
-| Transition | Condition | Probability | Default neighbors |
-| ---------- | --------- | ----------- | ----------------- |
-| Dirt → Grass | Tile is `Dirt`, at least `GrassNeighborThreshold` grass neighbors, and random < `GrassSpreadChance`. | Configurable (defaults: threshold 1, chance 0.25). |
-| Grass → Shrub | At least `ShrubNeighborThreshold` grass neighbors and random < `ShrubGrowthChance`. | Defaults: threshold 3, chance 0.04. |
-| Shrub → Tree | At least `TreeNeighborThreshold` shrub neighbors and random < `TreeGrowthChance`. | Defaults: threshold 3, chance 0.02. |
-
-Burning tiles skip succession until extinguished. Metrics update after writing `vegNext` and buffers swap.【F:internal/sims/ecology/ecology.go†L818-L876】【F:internal/sims/ecology/config.go†L58-L79】
+  * **Core** (`r < 0.35R`): `ground = Lava`, random lava_life.
+  * **Rim** (`0.35R–0.9R`): convert Rock→Mountain.
+  * **Specks:** small random lava spots on rim.
+* If not erupted → region vanishes quietly.
 
 ---
 
-## 9. Initialization & Tunables
+## 5. Ground-Layer Rules
 
-`DefaultConfig()` creates a 256×256 world with deterministic seed 1337 and the parameter pack in `config.go`. Highlights include:
-
-* Terrain: `RockChance` 5 %, grass patch count 12 with radii 2–5 and density 0.6.【F:internal/sims/ecology/config.go†L64-L88】
-* Lava lifespan 12–32 ticks (`LavaLifeMin/Max`) and spread floor `LavaSpreadMaskFloor` 0.2 (currently unused but exposed for tuning).【F:internal/sims/ecology/config.go†L64-L83】
-* Wind: `WindNoiseScale` 0.01, `WindSpeedScale` 0.6, `WindTemporalScale` 0.05.【F:internal/sims/ecology/config.go†L80-L98】
-* All parameters are adjustable at runtime via the HUD parameter snapshot plumbing, and `FromMap` supports overriding values from CLI-style maps.【F:internal/sims/ecology/config.go†L120-L323】
+- **Uplift** converts `Rock` → `Mountain` using the tectonic mask, unchanged from prior revisions.
+- **Eruptions** now seed a caldera of flowing lava: the core (≈35% of the radius) becomes `GroundLava` with thickness `h=2–3` and temperature `T=1`, the rim converts to `Mountain`, and 1–3 vents are created for 20–40 ticks that inject one unit of lava per tick into the downhill direction.
+- Each lava cell tracks `h∈[0,7]`, `T∈[0,1]`, an optional heading `dir`, a `tip` flag, a static pseudo-elevation `elev`, and a persistent `channel` weight that biases future flow.
+- **Tip advection** evaluates candidate neighbors (forward, ±45°, and any downhill choices) with the score `wSlope·Δelev + wAlign·dot(dir) + wChan·channel − wRain·RainMask − wWall·uphillPenalty`. Tips advance when the best score clears the threshold, optionally splitting when the trunk is thick. Forced advances ignore the alignment term once the trunk overflows (`h≥4`).
+- **Pooling** occurs when a tip cannot advance: the trunk thickens, a low-elevation neighbor may fill with a shallow pool, and once overflowed the next tick will force an advance.
+- **Cooling & crusting** subtract `ΔT = 0.02 + edge·0.03 + rain·0.08 + sigmoid(h−2)·0.02`, with an extra 0.02 for pools. When `T≤0.15` thick flows crust (`h--`, `T` capped at 0.35); otherwise the tile solidifies to `GroundRock`.
+- **Channel reinforcement** raises `channel += 0.15` for cells that advanced in the tick, then decays the field by 0.5% globally to keep rivers coherent without permanent grooves.
+- Rain cools lava faster and penalizes forward scores, encouraging early pooling and crusting under storms.
 
 ---
 
-## 10. Long-term Behaviour
+## 6. Fire Rules
 
-The interplay of systems drives a repeating ecological loop:
+| Stage                  | Logic                                                   |
+| ---------------------- | ------------------------------------------------------- |
+| **Ignition from Lava** | Vegetation near Lava ignites with `0.8 × (1−0.75R)`     |
+| **Fire Spread**        | Burning neighbor ignites others with `0.25 × (1−0.75R)` |
+| **Burn-Down**          | After 3 ticks, vegetation→None                          |
+| **Rain Extinguish**    | `rand()<0.5R` → clear Burning                           |
 
-1. Grass spreads and matures into shrubs and trees.
-2. Proto-volcano regions uplift mountains and occasionally erupt.
-3. Lava rivers carve paths, burn vegetation, and cool into new rock, influenced by rain.
-4. Fires ignite from lava and propagate across vegetation, with rain suppressing spread and extinguishing edges.
-5. Fresh rock/dirt clears the way for vegetation succession to restart, completing the cycle.
+---
 
-Deterministic seeding plus telemetry collectors (vegetation and environmental metrics) support regression testing and tuning of these dynamics.【F:internal/sims/ecology/ecology.go†L24-L118】【F:internal/sims/ecology/ecology.go†L3088-L3242】
+## 7. Vegetation Rules
+
+Executed top-down so a tile only advances one stage per tick.
+
+| Transition  | Condition          | Probability |
+| ----------- | ------------------ | ----------- |
+| Shrub→Tree  | ≥3 Shrub neighbors | 0.02        |
+| Grass→Shrub | ≥3 Grass neighbors | 0.04        |
+| Dirt→Grass  | any Grass neighbor | 0.25        |
+
+Fire or lava remove vegetation; there’s no passive withering.
+
+---
+
+## 8. Tick Sequence (Pseudo)
+
+```pseudo
+tick():
+  RainMask.clear(); VolcanoMask.clear()
+
+  // 1. Rasterize regions
+  for e in regions:
+    mask = (e.kind==Rain)?RainMask:VolcanoMask
+    rasterizeRoundish(e, mask)
+    e.ttl -= 1
+
+  // 2. Volcano proto uplift & eruptions
+  applyUplift(VolcanoMask)
+  eruptExpiredProtos(VolcanoMask)
+
+  // 3. Lava spread & cooling (uses RainMask)
+  updateLava()
+
+  // 4. Fire (uses RainMask)
+  updateFire()
+
+  // 5. Vegetation
+  updateVegetation()
+
+  // 6. Cleanup & spawn new regions
+  removeExpiredRegions()
+  maybeSpawnRain()
+  maybeSpawnVolcanoProto()
+```
+
+---
+
+## 9. Initialization
+
+* Start ground as **Dirt**, sprinkle **Rock** clusters.
+* Generate static `tectonic_map` with noisy gradients or ridges.
+* Seed a few **Grass** patches.
+* Begin with no active regions.
+
+---
+
+## 10. Implementation Notes
+
+* Use **double buffering** for both layers.
+* Store per-cell lava thickness (`h`), temperature (`T`), heading (`dir`), tip flags, overflow markers, and a float channel memory alongside the burn TTL field.
+* Cache the pseudo-elevation raster per eruption so tip scoring stays local and cheap.
+* Evaluate probabilities in random or shuffled order to reduce bias.
+* Keep region count small; rasterization is cheap when few regions exist.
+* For visuals, color by `ground` then overlay vegetation and burning glow.
+
+---
+
+### Summary
+
+This version forms a closed ecological loop:
+
+1. **Grasslands** expand → **Shrubs** → **Forests**.
+2. **Volcano protoregions** uplift mountains and occasionally **erupt**.
+3. **Lava** spreads, burns vegetation, **cools to rock**, restoring substrate.
+4. **Rain regions** drift across the map, damping fires and hastening cooling.
+5. Over many ticks, the map cycles through **growth, destruction, and renewal**, generating an emergent, believable terrain ecology.
