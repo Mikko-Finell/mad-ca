@@ -9,7 +9,7 @@
 **Scope**
 
 * Define two layers: **Ground** (`Dirt|Rock|Mountain|Lava`) and **Vegetation** (`None|Grass|Shrub|Tree`).
-* Add per-cell auxiliaries: `lava_life:int`, `burn_ttl:int` (0 = inactive).
+* Add per-cell auxiliaries: lava thickness/temperature/direction/tip flags plus `burn_ttl:int` (0 = inactive).
 * Introduce **region masks** (float [0..1]): `RainMask`, `VolcanoMask` (double-buffered).
 * Load a static `tectonic_map` ([0..1]) and a deterministic PRNG (seeded).
 * Centralize tunables (thresholds/probabilities/lifetimes) in a params object.
@@ -92,7 +92,7 @@
 
 ## Phase 4 — Tectonics, Volcano Proto, Lava
 
-**Status:** Complete — proto-volcano region spawner, mask rasterization, uplift conversion, mask-weighted lava spread/cooling, and rain-aware lava regression coverage are locked in.
+**Status:** Complete — proto-volcano region spawner, mask rasterization, uplift conversion, and the lava system has been upgraded to branching rivers with vent-fed flows, channel memory, and rain-aware cooling.
 
 **Goal:** Geological engine: uplift, eruptions, lava spread/cool.
 
@@ -101,7 +101,7 @@
 * **Region events framework:** list of active regions (center, radius, falloff, ttl, noise seed); per-tick rasterization to `VolcanoMask`. *(Volcano protoregion list implemented with linear falloff masks; expirations tracked for future eruption handling.)*
 * **Proto-volcano uplift:** Rock→Mountain with chance scaled by `VolcanoMask * P_uplift_base`. *(Implemented — uplift now occurs after mask build.)*
 * **Eruption on expiry:** chance `P_erupt_base * mean(VolcanoMask in region)`; write core lava, rim mountains, occasional lava specks.
-* **Lava:** spread to Dirt/Rock with `P_lava_spread_edge`, per-cell `lava_life` countdown → Lava→Rock on zero.
+* **Lava:** vent-driven rivers with per-cell `(h,T,dir,tip,channel)` state, tip-based advancement, pooling/overflow handling, and cooling/crusting that solidifies to rock when fronts chill.
 * keep order: build masks → uplift/erupt → lava spread/cool → fire → vegetation. *(Tick now builds volcano masks before uplifting and the existing lava/fire/vegetation phases.)*
 
 **Tests & Telemetry**
@@ -117,7 +117,7 @@
 
 **Notes:**
 
-* Proto-volcano lifecycle now consumes proto expirations to trigger eruptions that seed lava cores, uplift rims, and clear vegetation while feeding the lava system. Lava spread and cooling now scale with the volcano mask so flows stay localized and cool between eruptions, rain-driven cooling bonuses feed into the lava step, and the long-run regression now exercises mixed rain/volcano scenarios. Next step: begin Phase 5 by introducing regional rain events that rasterize into the rain mask and drive the remaining multipliers.
+* Proto-volcano lifecycle now consumes proto expirations to trigger eruptions that seed lava cores, uplift rims, and clear vegetation. The lava subsystem now carries thickness/temperature/heading data, advances tips along slopes with channel reinforcement, handles pooling and crusting, and vents maintain core flux. Rain both penalizes forward scoring and boosts cooling, and new tests cover vent seeding, cooling/crusting, channel reinforcement, and lava-driven ignition.
 * HUD exposes an adjustable volcano eruption base chance so tuning sessions can readily force eruptions when needed.
 
 ---

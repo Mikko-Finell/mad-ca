@@ -109,21 +109,14 @@ When proto expires:
 
 ## 5. Ground-Layer Rules
 
-| Step             | Condition                                               | Result                |
-| ---------------- | ------------------------------------------------------- | --------------------- |
-| **Uplift**       | Rock + tectonic chance                                  | → Mountain            |
-| **Eruption**     | Mountain + erupt chance                                 | → Lava                |
-| **Lava Spread**  | Lava adjacent to Dirt/Rock, chance `P_lava_spread_edge` | neighbor → Lava       |
-| **Lava Cooling** | each tick reduce life; extra cool bonus from rain       | Lava→Rock when life≤0 |
-
-Defaults
-
-```
-P_uplift_base = 0.00002
-P_erupt_base  = 0.00005
-lava_life = 15–40 ticks
-P_lava_spread_edge = 0.08
-```
+- **Uplift** converts `Rock` → `Mountain` using the tectonic mask, unchanged from prior revisions.
+- **Eruptions** now seed a caldera of flowing lava: the core (≈35% of the radius) becomes `GroundLava` with thickness `h=2–3` and temperature `T=1`, the rim converts to `Mountain`, and 1–3 vents are created for 20–40 ticks that inject one unit of lava per tick into the downhill direction.
+- Each lava cell tracks `h∈[0,7]`, `T∈[0,1]`, an optional heading `dir`, a `tip` flag, a static pseudo-elevation `elev`, and a persistent `channel` weight that biases future flow.
+- **Tip advection** evaluates candidate neighbors (forward, ±45°, and any downhill choices) with the score `wSlope·Δelev + wAlign·dot(dir) + wChan·channel − wRain·RainMask − wWall·uphillPenalty`. Tips advance when the best score clears the threshold, optionally splitting when the trunk is thick. Forced advances ignore the alignment term once the trunk overflows (`h≥4`).
+- **Pooling** occurs when a tip cannot advance: the trunk thickens, a low-elevation neighbor may fill with a shallow pool, and once overflowed the next tick will force an advance.
+- **Cooling & crusting** subtract `ΔT = 0.02 + edge·0.03 + rain·0.08 + sigmoid(h−2)·0.02`, with an extra 0.02 for pools. When `T≤0.15` thick flows crust (`h--`, `T` capped at 0.35); otherwise the tile solidifies to `GroundRock`.
+- **Channel reinforcement** raises `channel += 0.15` for cells that advanced in the tick, then decays the field by 0.5% globally to keep rivers coherent without permanent grooves.
+- Rain cools lava faster and penalizes forward scores, encouraging early pooling and crusting under storms.
 
 ---
 
@@ -197,7 +190,8 @@ tick():
 ## 10. Implementation Notes
 
 * Use **double buffering** for both layers.
-* Store per-cell integers for lava life & burn TTL.
+* Store per-cell lava thickness (`h`), temperature (`T`), heading (`dir`), tip flags, overflow markers, and a float channel memory alongside the burn TTL field.
+* Cache the pseudo-elevation raster per eruption so tip scoring stays local and cheap.
 * Evaluate probabilities in random or shuffled order to reduce bias.
 * Keep region count small; rasterization is cheap when few regions exist.
 * For visuals, color by `ground` then overlay vegetation and burning glow.
