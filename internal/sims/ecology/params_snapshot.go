@@ -61,6 +61,13 @@ func (w *World) Parameters() core.ParameterSnapshot {
 			},
 		},
 		{
+			Name: "Wind",
+			Params: []core.Parameter{
+				floatParam("wind_noise_scale", "Wind noise scale", params.WindNoiseScale),
+				floatParam("wind_speed_scale", "Wind speed scale", params.WindSpeedScale),
+			},
+		},
+		{
 			Name: "Vegetation",
 			Params: []core.Parameter{
 				intParam("grass_neighbor_threshold", "Grass neighbor threshold", params.GrassNeighborThreshold),
