@@ -64,8 +64,11 @@ Each tick, events rasterize into their masks; when `ttl==0` they expire.
 
 ### 4.2 Rain Regions
 
-* Spawn a few simultaneous rain regions (`≤8` typical).
-* Radius 8–24 tiles, lifetime 9–18 ticks, gaussian falloff.
+* Spawn 0–2 new regions per tick (cap ≈4 active). Spawn is suppressed when existing clouds already cover >15% of the map.
+* Each region spans radius 16–40 tiles (anisotropic variants stretch axes) and lasts 12–30 ticks by default. Squall presets use 8–15 ticks.
+* Mask geometry combines noise-thresholded blobs with smooth radial falloff: `R(x,y) = clamp(step(τ, fbm((x,y))) * smoothstep(0,1,1-(d/R)^p) * strength, 0,1)` with `p≈1.3–1.5`, `τ≈0.35–0.55`, and per-region noise seeds. Small specks are removed with a 1px morphological closing pass.
+* Regions drift each tick using a low-frequency wind field plus light jitter; strength eases in/out (~±15%). Overlapping clouds (>20% shared area) are merged by max-blending and the larger cloud absorbs the smaller (strength +0.1, capped at 1.0).
+* Presets provide variety: puffy (round), stratus (flattened band, stretched noise), and squall (elongated major axis, faster drift).
 
 **Effects (sample R = RainMask[x,y]):**
 

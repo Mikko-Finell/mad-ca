@@ -150,6 +150,7 @@
 * Tuned rain spawn chance/strength ranges to keep dry spells between storms, introduced environment telemetry helpers to summarize ground/fire/rain state, and regression runs now assert that rainy cycles cool lava faster while keeping large eruption oscillations.
 * Display pipeline now encodes ground, vegetation, and burning states into a palette-backed buffer so the sim’s cycles are visible in the app; palette coverage verified by new tests.
 * Palette entries are cached as `[]color.RGBA` to avoid per-pixel interface conversions while blitting the display buffer.
+* Rain masks now render drifting noise-shaped cloud blobs with wind-driven motion, merge-on-overlap, and morphology cleanup to eliminate spray artifacts; documentation updated to match.
 
 **Exit Criteria**
 
