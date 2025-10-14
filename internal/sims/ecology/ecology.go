@@ -135,6 +135,8 @@ func (w *World) ParameterControls() []core.ParameterControl {
 		floatControl("fire_rain_spread_dampen", "Rain dampen factor", 0.05, 0, 1),
 		floatControl("rain_spawn_chance", "Rain spawn chance", 0.01, 0, 0.2),
 		floatControl("rain_strength_max", "Rain strength max", 0.05, 0, 1),
+		floatControl("wind_noise_scale", "Wind noise scale", 0.001, 0, 0.05),
+		floatControl("wind_speed_scale", "Wind speed scale", 0.05, 0, 2),
 		floatControl("lava_spread_chance", "Lava spread chance", 0.05, 0, 1),
 		floatControl("volcano_proto_spawn_chance", "Volcano proto spawn chance", 0.01, 0, 0.5),
 		floatControl("volcano_eruption_chance_base", "Volcano eruption chance", 0.01, 0, 1),
@@ -199,6 +201,12 @@ func (w *World) SetFloatParameter(key string, value float64) bool {
 			clamped = w.cfg.Params.RainStrengthMin
 		}
 		w.cfg.Params.RainStrengthMax = clamped
+		return true
+	case "wind_noise_scale":
+		w.cfg.Params.WindNoiseScale = clampFloat(value, 0, 0.05)
+		return true
+	case "wind_speed_scale":
+		w.cfg.Params.WindSpeedScale = clampFloat(value, 0, 2)
 		return true
 	case "lava_spread_chance":
 		w.cfg.Params.LavaSpreadChance = clampFloat(value, 0, 1)
@@ -935,11 +943,15 @@ func (w *World) makeRainRegion() rainRegion {
 }
 
 func (w *World) windVector(x, y float64, seed int64) (float64, float64) {
-	scale := 0.01
+	scale := w.cfg.Params.WindNoiseScale
+	if scale < 0 {
+		scale = 0
+	}
 	sx := fbmNoise2D(x*scale, y*scale, 3, 0.5, 1.8, seed+17)
 	sy := fbmNoise2D((x+300)*scale, (y-300)*scale, 3, 0.5, 1.8, seed+53)
-	vx := (sx - 0.5) * 0.6
-	vy := (sy - 0.5) * 0.6
+	amplitude := w.cfg.Params.WindSpeedScale
+	vx := (sx - 0.5) * amplitude
+	vy := (sy - 0.5) * amplitude
 	return vx, vy
 }
 
