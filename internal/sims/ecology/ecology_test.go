@@ -426,16 +426,16 @@ func TestRainPreventsLavaIgnitionWhenFullyWet(t *testing.T) {
 
 func TestRainRegionRasterizesAndExpires(t *testing.T) {
 	cfg := DefaultConfig()
-	cfg.Width = 5
-	cfg.Height = 5
+	cfg.Width = 11
+	cfg.Height = 11
 	cfg.Params.RainSpawnChance = 0
 
 	world := NewWithConfig(cfg)
 	world.Reset(0)
 
 	world.rainRegions = append(world.rainRegions, rainRegion{
-		cx:                2.5,
-		cy:                2.5,
+		cx:                5.5,
+		cy:                5.5,
 		radiusX:           3.2,
 		radiusY:           3.2,
 		baseStrength:      1,
@@ -453,14 +453,19 @@ func TestRainRegionRasterizesAndExpires(t *testing.T) {
 
 	world.updateRainMask()
 
-	centerIdx := 2*world.w + 2
+	centerIdx := 5*world.w + 5
 	if got := world.rainCurr[centerIdx]; got < 0.75 {
 		t.Fatalf("expected strong rain at center, got %.3f", got)
 	}
 
-	edgeIdx := 2*world.w + 4
+	edgeIdx := 5*world.w + 8
 	if world.rainCurr[edgeIdx] >= world.rainCurr[centerIdx] {
 		t.Fatalf("expected gaussian falloff, edge %.3f center %.3f", world.rainCurr[edgeIdx], world.rainCurr[centerIdx])
+	}
+
+	outsideIdx := 5*world.w + 0
+	if world.rainCurr[outsideIdx] != 0 {
+		t.Fatalf("expected mask to fall to zero outside radius, got %.3f", world.rainCurr[outsideIdx])
 	}
 
 	if len(world.rainRegions) != 1 {
