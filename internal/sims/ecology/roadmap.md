@@ -150,7 +150,9 @@
 * Tuned rain spawn chance/strength ranges to keep dry spells between storms, introduced environment telemetry helpers to summarize ground/fire/rain state, and regression runs now assert that rainy cycles cool lava faster while keeping large eruption oscillations.
 * Display pipeline now encodes ground, vegetation, and burning states into a palette-backed buffer so the sim’s cycles are visible in the app; palette coverage verified by new tests.
 * Palette entries are cached as `[]color.RGBA` to avoid per-pixel interface conversions while blitting the display buffer.
-* Rain and volcano debug overlays now apply a softer alpha curve with brighter cores so the terrain remains readable while event hotspots stand out clearly.
+* Rain masks now render drifting noise-shaped cloud blobs with wind-driven motion, merge-on-overlap, and morphology cleanup to eliminate spray artifacts; documentation updated to match.
+* Latest tuning lowered the noise gate to τ≈0.35–0.45 with a smoothstep blend, enforces solid cores, and widens the morphology closing radius to 2px to plug noise pinholes.
+* HUD now surfaces wind noise and speed controls so storm drift can be dialed in live during tuning sessions.
 
 **Exit Criteria**
 

@@ -31,6 +31,9 @@ type Params struct {
 	RainStrengthMin float64
 	RainStrengthMax float64
 
+	WindNoiseScale float64
+	WindSpeedScale float64
+
 	GrassNeighborThreshold int
 	GrassSpreadChance      float64
 	ShrubNeighborThreshold int
@@ -83,14 +86,16 @@ func DefaultConfig() Config {
 			FireLavaIgniteChance:          0.8,
 			FireRainSpreadDampen:          0.75,
 			FireRainExtinguishChance:      0.5,
-                        RainMaxRegions:                5,
-                        RainSpawnChance:               0.065,
-                        RainRadiusMin:                 8,
-                        RainRadiusMax:                 24,
-                        RainTTLMin:                    9,
-                        RainTTLMax:                    18,
-                        RainStrengthMin:               0.35,
-                        RainStrengthMax:               0.85,
+			RainMaxRegions:                4,
+			RainSpawnChance:               0.22,
+			RainRadiusMin:                 16,
+			RainRadiusMax:                 40,
+			RainTTLMin:                    12,
+			RainTTLMax:                    30,
+			RainStrengthMin:               0.5,
+			RainStrengthMax:               1.0,
+			WindNoiseScale:                0.01,
+			WindSpeedScale:                0.6,
 			GrassNeighborThreshold:        1,
 			GrassSpreadChance:             0.25,
 			ShrubNeighborThreshold:        3,
@@ -271,6 +276,22 @@ func FromMap(cfg map[string]string) Config {
 	}
 	if c.Params.RainStrengthMax < c.Params.RainStrengthMin {
 		c.Params.RainStrengthMax = c.Params.RainStrengthMin
+	}
+	if v, ok := cfg["wind_noise_scale"]; ok {
+		if parsed, err := strconv.ParseFloat(v, 64); err == nil {
+			if parsed < 0 {
+				parsed = 0
+			}
+			c.Params.WindNoiseScale = parsed
+		}
+	}
+	if v, ok := cfg["wind_speed_scale"]; ok {
+		if parsed, err := strconv.ParseFloat(v, 64); err == nil {
+			if parsed < 0 {
+				parsed = 0
+			}
+			c.Params.WindSpeedScale = parsed
+		}
 	}
 	if v, ok := cfg["grass_neighbor_threshold"]; ok {
 		if parsed, err := strconv.Atoi(v); err == nil && parsed >= 0 {

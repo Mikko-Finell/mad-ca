@@ -399,11 +399,21 @@ func TestRainPreventsLavaIgnitionWhenFullyWet(t *testing.T) {
 	world.lavaLife[1] = 5
 	world.vegCurr[0] = VegetationTree
 	world.rainRegions = append(world.rainRegions, rainRegion{
-		cx:       0.5,
-		cy:       0.5,
-		radius:   4,
-		strength: 1,
-		ttl:      5,
+		cx:                0.5,
+		cy:                0.5,
+		radiusX:           4,
+		radiusY:           4,
+		baseStrength:      1,
+		strength:          1,
+		strengthVariation: 0,
+		ttl:               5,
+		maxTTL:            5,
+		falloff:           1.4,
+		noiseScale:        0.01,
+		noiseStretchX:     1,
+		noiseStretchY:     1,
+		threshold:         0,
+		preset:            rainPresetPuffy,
 	})
 	copy(world.vegNext, world.vegCurr)
 
@@ -416,31 +426,46 @@ func TestRainPreventsLavaIgnitionWhenFullyWet(t *testing.T) {
 
 func TestRainRegionRasterizesAndExpires(t *testing.T) {
 	cfg := DefaultConfig()
-	cfg.Width = 5
-	cfg.Height = 5
+	cfg.Width = 11
+	cfg.Height = 11
 	cfg.Params.RainSpawnChance = 0
 
 	world := NewWithConfig(cfg)
 	world.Reset(0)
 
 	world.rainRegions = append(world.rainRegions, rainRegion{
-		cx:       2.5,
-		cy:       2.5,
-		radius:   3,
-		strength: 1,
-		ttl:      2,
+		cx:                5.5,
+		cy:                5.5,
+		radiusX:           3.2,
+		radiusY:           3.2,
+		baseStrength:      1,
+		strength:          1,
+		strengthVariation: 0,
+		ttl:               2,
+		maxTTL:            2,
+		falloff:           1.35,
+		noiseScale:        0.01,
+		noiseStretchX:     1,
+		noiseStretchY:     1,
+		threshold:         0,
+		preset:            rainPresetPuffy,
 	})
 
 	world.updateRainMask()
 
-	centerIdx := 2*world.w + 2
-	if got := world.rainCurr[centerIdx]; got < 0.95 {
+	centerIdx := 5*world.w + 5
+	if got := world.rainCurr[centerIdx]; got < 0.75 {
 		t.Fatalf("expected strong rain at center, got %.3f", got)
 	}
 
-	edgeIdx := 2*world.w + 4
+	edgeIdx := 5*world.w + 8
 	if world.rainCurr[edgeIdx] >= world.rainCurr[centerIdx] {
 		t.Fatalf("expected gaussian falloff, edge %.3f center %.3f", world.rainCurr[edgeIdx], world.rainCurr[centerIdx])
+	}
+
+	outsideIdx := 5*world.w + 0
+	if world.rainCurr[outsideIdx] != 0 {
+		t.Fatalf("expected mask to fall to zero outside radius, got %.3f", world.rainCurr[outsideIdx])
 	}
 
 	if len(world.rainRegions) != 1 {
@@ -454,7 +479,7 @@ func TestRainRegionRasterizesAndExpires(t *testing.T) {
 	if len(world.rainRegions) != 0 {
 		t.Fatalf("expected region to expire after second tick, len=%d", len(world.rainRegions))
 	}
-	if got := world.rainCurr[centerIdx]; got < 0.95 {
+	if got := world.rainCurr[centerIdx]; got < 0.75 {
 		t.Fatalf("expected second tick to still render rain, got %.3f", got)
 	}
 
@@ -914,20 +939,22 @@ func TestVolcanoCyclesRegression(t *testing.T) {
 		lava     int
 		mountain int
 	}{
-		{tick: 90, lava: 0, mountain: 78},
-		{tick: 179, lava: 0, mountain: 196},
-		{tick: 359, lava: 0, mountain: 488},
-		{tick: 419, lava: 0, mountain: 570},
-		{tick: steps - 1, lava: 0, mountain: 677},
+		{tick: 90, lava: 0, mountain: 58},
+		{tick: 179, lava: 7, mountain: 202},
+		{tick: 359, lava: 0, mountain: 444},
+		{tick: 419, lava: 0, mountain: 486},
+		{tick: steps - 1, lava: 0, mountain: 643},
 	}
 
 	for _, checkpoint := range checkpoints {
-		t.Logf("tick %d -> lava=%d mountain=%d", checkpoint.tick, lavaHistory[checkpoint.tick], mountainHistory[checkpoint.tick])
-		if lavaHistory[checkpoint.tick] != checkpoint.lava {
-			t.Fatalf("lava count mismatch at tick %d: expected %d, got %d", checkpoint.tick, checkpoint.lava, lavaHistory[checkpoint.tick])
+		actualLava := lavaHistory[checkpoint.tick]
+		actualMountain := mountainHistory[checkpoint.tick]
+		t.Logf("tick %d -> lava=%d mountain=%d", checkpoint.tick, actualLava, actualMountain)
+		if actualLava != checkpoint.lava {
+			t.Fatalf("lava count mismatch at tick %d: expected %d, got %d", checkpoint.tick, checkpoint.lava, actualLava)
 		}
-		if mountainHistory[checkpoint.tick] != checkpoint.mountain {
-			t.Fatalf("mountain count mismatch at tick %d: expected %d, got %d", checkpoint.tick, checkpoint.mountain, mountainHistory[checkpoint.tick])
+		if actualMountain != checkpoint.mountain {
+			t.Fatalf("mountain count mismatch at tick %d: expected %d, got %d", checkpoint.tick, checkpoint.mountain, actualMountain)
 		}
 	}
 
@@ -944,8 +971,8 @@ func TestVolcanoCyclesRegression(t *testing.T) {
 
 	t.Logf("lava peak=%d trough=%d", maxLava, minLava)
 
-	if maxLava != 79 {
-		t.Fatalf("expected lava peak of 79 tiles, got %d", maxLava)
+	if maxLava != 75 {
+		t.Fatalf("expected lava peak of 75 tiles, got %d", maxLava)
 	}
 	if minLava != 0 {
 		t.Fatalf("expected lava trough to fully cool, min=%d", minLava)
@@ -977,11 +1004,21 @@ func applyOscillatingRain(world *World, tick int) {
 	effectiveRadius := math.Max(bandRadius, float64(height)*1.5)
 	cy := float64(height)/2 + 0.5
 	world.rainRegions = append(world.rainRegions, rainRegion{
-		cx:       center + 0.5,
-		cy:       cy,
-		radius:   effectiveRadius,
-		strength: 1,
-		ttl:      1,
+		cx:                center + 0.5,
+		cy:                cy,
+		radiusX:           effectiveRadius,
+		radiusY:           effectiveRadius * 0.6,
+		baseStrength:      1,
+		strength:          1,
+		strengthVariation: 0,
+		ttl:               1,
+		maxTTL:            1,
+		falloff:           1.3,
+		noiseScale:        0.05,
+		noiseStretchX:     1,
+		noiseStretchY:     0.6,
+		threshold:         0,
+		preset:            rainPresetStratus,
 	})
 }
 

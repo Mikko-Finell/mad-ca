@@ -33,20 +33,21 @@ type World struct {
 
 	w, h int
 
-	groundCurr []Ground
-	groundNext []Ground
-	vegCurr    []Vegetation
-	vegNext    []Vegetation
-	lavaLife   []uint8
-	lavaNext   []uint8
-	burnTTL    []uint8
-	burnNext   []uint8
-	rainCurr   []float32
-	rainNext   []float32
-	volCurr    []float32
-	volNext    []float32
-	tectonic   []float32
-	display    []uint8
+	groundCurr  []Ground
+	groundNext  []Ground
+	vegCurr     []Vegetation
+	vegNext     []Vegetation
+	lavaLife    []uint8
+	lavaNext    []uint8
+	burnTTL     []uint8
+	burnNext    []uint8
+	rainCurr    []float32
+	rainNext    []float32
+	rainScratch []float32
+	volCurr     []float32
+	volNext     []float32
+	tectonic    []float32
+	display     []uint8
 
 	rng *rand.Rand
 
@@ -96,11 +97,33 @@ type volcanoProtoRegion struct {
 }
 
 type rainRegion struct {
-	cx, cy   float64
-	radius   float64
-	strength float64
-	ttl      int
+	cx, cy            float64
+	radiusX           float64
+	radiusY           float64
+	strength          float64
+	baseStrength      float64
+	strengthVariation float64
+	ttl               int
+	maxTTL            int
+	age               int
+	vx, vy            float64
+	threshold         float64
+	falloff           float64
+	noiseScale        float64
+	noiseStretchX     float64
+	noiseStretchY     float64
+	noiseSeed         int64
+	angle             float64
+	preset            rainPreset
 }
+
+type rainPreset int
+
+const (
+	rainPresetPuffy rainPreset = iota
+	rainPresetStratus
+	rainPresetSquall
+)
 
 // ParameterControls exposes the key ecology parameters that should be
 // adjustable from the HUD.
@@ -112,6 +135,8 @@ func (w *World) ParameterControls() []core.ParameterControl {
 		floatControl("fire_rain_spread_dampen", "Rain dampen factor", 0.05, 0, 1),
 		floatControl("rain_spawn_chance", "Rain spawn chance", 0.01, 0, 0.2),
 		floatControl("rain_strength_max", "Rain strength max", 0.05, 0, 1),
+		floatControl("wind_noise_scale", "Wind noise scale", 0.001, 0, 0.05),
+		floatControl("wind_speed_scale", "Wind speed scale", 0.05, 0, 2),
 		floatControl("lava_spread_chance", "Lava spread chance", 0.05, 0, 1),
 		floatControl("volcano_proto_spawn_chance", "Volcano proto spawn chance", 0.01, 0, 0.5),
 		floatControl("volcano_eruption_chance_base", "Volcano eruption chance", 0.01, 0, 1),
@@ -177,6 +202,12 @@ func (w *World) SetFloatParameter(key string, value float64) bool {
 		}
 		w.cfg.Params.RainStrengthMax = clamped
 		return true
+	case "wind_noise_scale":
+		w.cfg.Params.WindNoiseScale = clampFloat(value, 0, 0.05)
+		return true
+	case "wind_speed_scale":
+		w.cfg.Params.WindSpeedScale = clampFloat(value, 0, 2)
+		return true
 	case "lava_spread_chance":
 		w.cfg.Params.LavaSpreadChance = clampFloat(value, 0, 1)
 		return true
@@ -206,24 +237,25 @@ func NewWithConfig(cfg Config) *World {
 		total = 0
 	}
 	w := &World{
-		cfg:        cfg,
-		w:          cfg.Width,
-		h:          cfg.Height,
-		groundCurr: make([]Ground, total),
-		groundNext: make([]Ground, total),
-		vegCurr:    make([]Vegetation, total),
-		vegNext:    make([]Vegetation, total),
-		lavaLife:   make([]uint8, total),
-		lavaNext:   make([]uint8, total),
-		burnTTL:    make([]uint8, total),
-		burnNext:   make([]uint8, total),
-		rainCurr:   make([]float32, total),
-		rainNext:   make([]float32, total),
-		volCurr:    make([]float32, total),
-		volNext:    make([]float32, total),
-		tectonic:   loadTectonicMap(cfg.Width, cfg.Height),
-		display:    make([]uint8, total),
-		rng:        rand.New(rand.NewSource(cfg.Seed)),
+		cfg:         cfg,
+		w:           cfg.Width,
+		h:           cfg.Height,
+		groundCurr:  make([]Ground, total),
+		groundNext:  make([]Ground, total),
+		vegCurr:     make([]Vegetation, total),
+		vegNext:     make([]Vegetation, total),
+		lavaLife:    make([]uint8, total),
+		lavaNext:    make([]uint8, total),
+		burnTTL:     make([]uint8, total),
+		burnNext:    make([]uint8, total),
+		rainCurr:    make([]float32, total),
+		rainNext:    make([]float32, total),
+		rainScratch: make([]float32, total),
+		volCurr:     make([]float32, total),
+		volNext:     make([]float32, total),
+		tectonic:    loadTectonicMap(cfg.Width, cfg.Height),
+		display:     make([]uint8, total),
+		rng:         rand.New(rand.NewSource(cfg.Seed)),
 	}
 	return w
 }
@@ -274,6 +306,9 @@ func (w *World) Reset(seed int64) {
 		w.burnNext[i] = 0
 		w.rainCurr[i] = 0
 		w.rainNext[i] = 0
+		if i < len(w.rainScratch) {
+			w.rainScratch[i] = 0
+		}
 		w.volCurr[i] = 0
 		w.volNext[i] = 0
 		w.display[i] = uint8(GroundDirt)
@@ -412,32 +447,77 @@ func (w *World) updateRainMask() {
 		w.rainNext[i] = 0
 	}
 
-	nextRegions := w.rainRegions[:0]
+	active := w.rainRegions[:0]
 	for i := range w.rainRegions {
 		region := w.rainRegions[i]
 		if region.ttl <= 0 {
 			continue
 		}
-		w.rasterizeRainRegion(region)
+		region = w.advanceRainRegion(region)
+		active = append(active, region)
+	}
+
+	w.rainRegions = active
+
+	var absorbed []bool
+	if len(w.rainRegions) > 1 {
+		absorbed = make([]bool, len(w.rainRegions))
+		for i := 0; i < len(w.rainRegions); i++ {
+			for j := i + 1; j < len(w.rainRegions); j++ {
+				overlap := rainOverlapRatio(w.rainRegions[i], w.rainRegions[j])
+				if overlap <= 0.2 {
+					continue
+				}
+				larger := i
+				smaller := j
+				if w.rainRegions[j].area() > w.rainRegions[i].area() {
+					larger, smaller = j, i
+				}
+				boosted := clamp01(w.rainRegions[larger].baseStrength + 0.1)
+				w.rainRegions[larger].baseStrength = boosted
+				if w.rainRegions[larger].strength < boosted {
+					w.rainRegions[larger].strength = boosted
+				}
+				absorbed[smaller] = true
+			}
+		}
+	}
+
+	for i := range w.rainRegions {
+		w.rasterizeRainRegion(&w.rainRegions[i])
+	}
+
+	nextRegions := w.rainRegions[:0]
+	for i := range w.rainRegions {
+		region := w.rainRegions[i]
 		region.ttl--
 		if region.ttl > 0 {
+			if len(absorbed) > 0 && absorbed[i] {
+				continue
+			}
 			nextRegions = append(nextRegions, region)
 		}
 	}
 
 	w.rainRegions = nextRegions
+	w.applyRainMorphology()
+
 	w.rainCurr, w.rainNext = w.rainNext, w.rainCurr
 }
 
-func (w *World) rasterizeRainRegion(region rainRegion) {
-	if region.radius <= 0 {
+func (w *World) rasterizeRainRegion(region *rainRegion) {
+	if region == nil {
+		return
+	}
+	if region.radiusX <= 0 || region.radiusY <= 0 {
 		return
 	}
 
-	minX := int(math.Floor(region.cx - region.radius))
-	maxX := int(math.Ceil(region.cx + region.radius))
-	minY := int(math.Floor(region.cy - region.radius))
-	maxY := int(math.Ceil(region.cy + region.radius))
+	padding := 2.0
+	minX := int(math.Floor(region.cx - region.radiusX - padding))
+	maxX := int(math.Ceil(region.cx + region.radiusX + padding))
+	minY := int(math.Floor(region.cy - region.radiusY - padding))
+	maxY := int(math.Ceil(region.cy + region.radiusY + padding))
 
 	if minX < 0 {
 		minX = 0
@@ -456,13 +536,28 @@ func (w *World) rasterizeRainRegion(region rainRegion) {
 		return
 	}
 
-	sigma := region.radius * 0.5
-	if sigma <= 0 {
-		sigma = region.radius
+	cosA := math.Cos(region.angle)
+	sinA := math.Sin(region.angle)
+	invRadiusX := 1.0 / region.radiusX
+	invRadiusY := 1.0 / region.radiusY
+	falloff := region.falloff
+	if falloff <= 0 {
+		falloff = 1.4
 	}
-	invTwoSigmaSq := 0.0
-	if sigma > 0 {
-		invTwoSigmaSq = 1.0 / (2 * sigma * sigma)
+
+	strength := clamp01(region.strength)
+	threshold := clamp01(region.threshold)
+	noiseScale := region.noiseScale
+	if noiseScale <= 0 {
+		noiseScale = 0.08
+	}
+	stretchX := region.noiseStretchX
+	if stretchX == 0 {
+		stretchX = 1
+	}
+	stretchY := region.noiseStretchY
+	if stretchY == 0 {
+		stretchY = 1
 	}
 
 	for y := minY; y <= maxY; y++ {
@@ -471,22 +566,36 @@ func (w *World) rasterizeRainRegion(region rainRegion) {
 			cx := float64(x) + 0.5
 			dx := cx - region.cx
 			dy := cy - region.cy
-			dist := math.Sqrt(dx*dx + dy*dy)
-			if dist > region.radius {
+
+			rx := dx*cosA + dy*sinA
+			ry := -dx*sinA + dy*cosA
+
+			nx := (rx * stretchX) * noiseScale
+			ny := (ry * stretchY) * noiseScale
+			n := fbmNoise2D(nx, ny, 3, 0.5, 1.9, region.noiseSeed)
+
+			distX := rx * invRadiusX
+			distY := ry * invRadiusY
+			radial := math.Sqrt(distX*distX + distY*distY)
+			if radial > 1 {
 				continue
 			}
 
-			intensity := region.strength
-			if invTwoSigmaSq > 0 {
-				intensity *= math.Exp(-dist * dist * invTwoSigmaSq)
-			}
-			if intensity <= 0 {
+			// SOFT CLOUD MASK
+			c := smoothstep(threshold-0.08, threshold+0.08, n)
+			if c <= 0 {
 				continue
 			}
-			if intensity > 1 {
-				intensity = 1
+
+			// RADIAL CORE FLOOR (prevents central holes)
+			if radial < 0.35 {
+				c = 1
 			}
-			if intensity < 0.001 {
+
+			// final value uses soft mask instead of step
+			fall := smoothstep(0, 1, 1-math.Pow(radial, falloff))
+			val := float32(clamp01(float64(c) * fall * strength))
+			if val <= 0.01 {
 				continue
 			}
 
@@ -494,7 +603,6 @@ func (w *World) rasterizeRainRegion(region rainRegion) {
 			if idx < 0 || idx >= len(w.rainNext) {
 				continue
 			}
-			val := float32(intensity)
 			if val <= w.rainNext[idx] {
 				continue
 			}
@@ -512,73 +620,493 @@ func (w *World) spawnRainRegion() {
 	if maxRegions <= 0 {
 		return
 	}
-	if len(w.rainRegions) >= maxRegions {
+
+	available := maxRegions - len(w.rainRegions)
+	if available <= 0 {
 		return
 	}
 
-	spawnChance := w.cfg.Params.RainSpawnChance
+	spawnChance := clampFloat(w.cfg.Params.RainSpawnChance, 0, 1)
 	if spawnChance <= 0 {
 		return
 	}
-	if spawnChance > 1 {
-		spawnChance = 1
+
+	attempts := available
+	if attempts > 2 {
+		attempts = 2
 	}
-	if w.rng.Float64() >= spawnChance {
+
+	total := w.w * w.h
+	if total <= 0 {
 		return
 	}
 
-	radiusMin := w.cfg.Params.RainRadiusMin
-	radiusMax := w.cfg.Params.RainRadiusMax
-	if radiusMin <= 0 {
-		radiusMin = 1
+	coverage := w.currentRainCoverageRatio()
+	hasActive := len(w.rainRegions) > 0
+	for i := 0; i < attempts; i++ {
+		if hasActive && coverage > 0.15 {
+			skipChance := clampFloat((coverage-0.15)*3, 0, 0.9)
+			if w.rng.Float64() < skipChance {
+				continue
+			}
+		}
+		if w.rng.Float64() >= spawnChance {
+			continue
+		}
+		region := w.makeRainRegion()
+		w.rainRegions = append(w.rainRegions, region)
+		coverage += region.area() / float64(total)
+		hasActive = len(w.rainRegions) > 0
+		if len(w.rainRegions) >= maxRegions {
+			break
+		}
 	}
+}
+
+func (w *World) advanceRainRegion(region rainRegion) rainRegion {
+	region.age++
+
+	targetVX, targetVY := w.windVector(region.cx, region.cy, region.noiseSeed)
+	region.vx += (targetVX - region.vx) * 0.05
+	region.vy += (targetVY - region.vy) * 0.05
+
+	jitterX, jitterY := correlatedJitter(region.noiseSeed, region.age)
+	region.vx += jitterX * 0.05
+	region.vy += jitterY * 0.05
+
+	region.cx += region.vx
+	region.cy += region.vy
+
+	marginX := region.radiusX
+	if marginX < 1 {
+		marginX = 1
+	}
+	marginY := region.radiusY
+	if marginY < 1 {
+		marginY = 1
+	}
+	if region.cx < -marginX {
+		region.cx = -marginX
+	} else if region.cx > float64(w.w)+marginX {
+		region.cx = float64(w.w) + marginX
+	}
+	if region.cy < -marginY {
+		region.cy = -marginY
+	} else if region.cy > float64(w.h)+marginY {
+		region.cy = float64(w.h) + marginY
+	}
+
+	if region.maxTTL < region.ttl {
+		region.maxTTL = region.ttl
+	}
+	if region.maxTTL <= 0 {
+		region.maxTTL = 1
+	}
+
+	progress := float64(region.age) / float64(region.maxTTL)
+	if progress < 0 {
+		progress = 0
+	}
+	if progress > 1 {
+		progress = 1
+	}
+
+	envelope := math.Sin(progress * math.Pi)
+	if envelope < 0 {
+		envelope = 0
+	}
+
+	swing := clampFloat(region.strengthVariation, 0, 0.5)
+	factor := 1 - swing + envelope*2*swing
+	region.strength = clamp01(region.baseStrength * factor)
+
+	if region.preset != rainPresetPuffy {
+		speed := math.Hypot(region.vx, region.vy)
+		if speed > 1e-3 {
+			region.angle = math.Atan2(region.vy, region.vx)
+		}
+	}
+
+	return region
+}
+
+func (w *World) applyRainMorphology() {
+	total := w.w * w.h
+	if total == 0 || len(w.rainNext) != total || len(w.rainScratch) != total {
+		return
+	}
+
+	radius := 2 // was 1; better at sealing noise-made pinholes
+	for y := 0; y < w.h; y++ {
+		for x := 0; x < w.w; x++ {
+			maxVal := float32(0)
+			for oy := -radius; oy <= radius; oy++ {
+				ny := y + oy
+				if ny < 0 || ny >= w.h {
+					continue
+				}
+				for ox := -radius; ox <= radius; ox++ {
+					nx := x + ox
+					if nx < 0 || nx >= w.w {
+						continue
+					}
+					v := w.rainNext[ny*w.w+nx]
+					if v > maxVal {
+						maxVal = v
+					}
+				}
+			}
+			w.rainScratch[y*w.w+x] = maxVal
+		}
+	}
+
+	for y := 0; y < w.h; y++ {
+		for x := 0; x < w.w; x++ {
+			minVal := float32(1)
+			hasVal := false
+			for oy := -radius; oy <= radius; oy++ {
+				ny := y + oy
+				if ny < 0 || ny >= w.h {
+					continue
+				}
+				for ox := -radius; ox <= radius; ox++ {
+					nx := x + ox
+					if nx < 0 || nx >= w.w {
+						continue
+					}
+					v := w.rainScratch[ny*w.w+nx]
+					if !hasVal || v < minVal {
+						minVal = v
+						hasVal = true
+					}
+				}
+			}
+			if !hasVal {
+				minVal = 0
+			}
+			if minVal < 0.02 {
+				minVal = 0
+			}
+			w.rainNext[y*w.w+x] = minVal
+		}
+	}
+}
+
+func (w *World) currentRainCoverageRatio() float64 {
+	total := w.w * w.h
+	if total == 0 || len(w.rainCurr) != total {
+		return 0
+	}
+	covered := 0
+	for _, v := range w.rainCurr {
+		if v > 0.05 {
+			covered++
+		}
+	}
+	if covered == 0 {
+		return 0
+	}
+	return float64(covered) / float64(total)
+}
+
+func (w *World) makeRainRegion() rainRegion {
+	params := w.cfg.Params
+
+	radiusMin := params.RainRadiusMin
+	if radiusMin < 16 {
+		radiusMin = 16
+	}
+	radiusMax := params.RainRadiusMax
 	if radiusMax < radiusMin {
 		radiusMax = radiusMin
 	}
-	radius := radiusMin
+
+	baseRadius := float64(radiusMin)
 	if radiusMax > radiusMin {
-		radius += w.rng.Intn(radiusMax - radiusMin + 1)
+		baseRadius = float64(radiusMin + w.rng.Intn(radiusMax-radiusMin+1))
 	}
 
-	ttlMin := w.cfg.Params.RainTTLMin
-	ttlMax := w.cfg.Params.RainTTLMax
-	if ttlMin <= 0 {
+	ttlMin := params.RainTTLMin
+	if ttlMin < 1 {
 		ttlMin = 1
 	}
+	ttlMax := params.RainTTLMax
 	if ttlMax < ttlMin {
 		ttlMax = ttlMin
 	}
+
+	strengthMin := clampFloat(params.RainStrengthMin, 0, 1)
+	strengthMax := clampFloat(params.RainStrengthMax, 0, 1)
+	if strengthMax < strengthMin {
+		strengthMax = strengthMin
+	}
+	if strengthMin < 0.5 {
+		strengthMin = 0.5
+	}
+
+	baseStrength := strengthMin
+	if strengthMax > strengthMin {
+		baseStrength += w.rng.Float64() * (strengthMax - strengthMin)
+	}
+
+	threshold := 0.35 + w.rng.Float64()*0.1
+	falloff := 1.4
+	noiseScale := 0.08 + w.rng.Float64()*0.01
+	stretchX := 1.0
+	stretchY := 1.0
+	radiusX := baseRadius
+	radiusY := baseRadius
 	ttl := ttlMin
 	if ttlMax > ttlMin {
 		ttl += w.rng.Intn(ttlMax - ttlMin + 1)
 	}
 
-	strengthMin := w.cfg.Params.RainStrengthMin
-	strengthMax := w.cfg.Params.RainStrengthMax
-	if strengthMin < 0 {
-		strengthMin = 0
+	presetRoll := w.rng.Float64()
+	preset := rainPresetPuffy
+	switch {
+	case presetRoll < 0.55:
+		preset = rainPresetPuffy
+		falloff = 1.3 + w.rng.Float64()*0.2
+	case presetRoll < 0.85:
+		preset = rainPresetStratus
+		radiusX = baseRadius * (1.1 + w.rng.Float64()*0.4)
+		radiusY = baseRadius * 0.6
+		stretchY = 0.6
+		noiseScale = 0.065 + w.rng.Float64()*0.015
+		falloff = 1.2 + w.rng.Float64()*0.2
+	default:
+		preset = rainPresetSquall
+		radiusX = 40 + w.rng.Float64()*20
+		radiusY = 10 + w.rng.Float64()*6
+		if radiusX > float64(params.RainRadiusMax)*1.5 {
+			radiusX = float64(params.RainRadiusMax) * 1.5
+		}
+		stretchX = 1.2
+		stretchY = 0.8
+		noiseScale = 0.07 + w.rng.Float64()*0.02
+		falloff = 1.1 + w.rng.Float64()*0.2
+		ttl = 8 + w.rng.Intn(8)
 	}
-	if strengthMax < strengthMin {
-		strengthMax = strengthMin
+
+	if radiusX < 10 {
+		radiusX = 10
 	}
-	strength := strengthMin
-	if strengthMax > strengthMin {
-		strength += w.rng.Float64() * (strengthMax - strengthMin)
+	if radiusY < 10 {
+		radiusY = 10
 	}
-	if strength > 1 {
-		strength = 1
+
+	maxSpanX := math.Max(1, float64(w.w))
+	maxSpanY := math.Max(1, float64(w.h))
+	if radiusX > maxSpanX {
+		radiusX = maxSpanX
+	}
+	if radiusY > maxSpanY {
+		radiusY = maxSpanY
 	}
 
 	cx := float64(w.rng.Intn(w.w)) + 0.5
 	cy := float64(w.rng.Intn(w.h)) + 0.5
+	seed := w.rng.Int63()
+	vx, vy := w.windVector(cx, cy, seed)
 
-	w.rainRegions = append(w.rainRegions, rainRegion{
-		cx:       cx,
-		cy:       cy,
-		radius:   float64(radius),
-		strength: strength,
-		ttl:      ttl,
-	})
+	strengthVariation := 0.1 + w.rng.Float64()*0.1
+
+	region := rainRegion{
+		cx:                cx,
+		cy:                cy,
+		radiusX:           radiusX,
+		radiusY:           radiusY,
+		baseStrength:      baseStrength,
+		strength:          baseStrength,
+		strengthVariation: strengthVariation,
+		ttl:               ttl,
+		maxTTL:            ttl,
+		vx:                vx,
+		vy:                vy,
+		threshold:         threshold,
+		falloff:           falloff,
+		noiseScale:        noiseScale,
+		noiseStretchX:     stretchX,
+		noiseStretchY:     stretchY,
+		noiseSeed:         seed,
+		preset:            preset,
+	}
+
+	if preset != rainPresetPuffy {
+		speed := math.Hypot(vx, vy)
+		if speed > 1e-3 {
+			region.angle = math.Atan2(vy, vx)
+		}
+	}
+
+	return region
+}
+
+func (w *World) windVector(x, y float64, seed int64) (float64, float64) {
+	scale := w.cfg.Params.WindNoiseScale
+	if scale < 0 {
+		scale = 0
+	}
+	sx := fbmNoise2D(x*scale, y*scale, 3, 0.5, 1.8, seed+17)
+	sy := fbmNoise2D((x+300)*scale, (y-300)*scale, 3, 0.5, 1.8, seed+53)
+	amplitude := w.cfg.Params.WindSpeedScale
+	vx := (sx - 0.5) * amplitude
+	vy := (sy - 0.5) * amplitude
+	return vx, vy
+}
+
+func correlatedJitter(seed int64, age int) (float64, float64) {
+	hx := hash2D(int64(age), 0, seed)
+	hy := hash2D(int64(age), 1, seed^0x517cc1b727220a95)
+	jx := (float64(hx)/float64(math.MaxUint32) - 0.5) * 0.3
+	jy := (float64(hy)/float64(math.MaxUint32) - 0.5) * 0.3
+	return jx, jy
+}
+
+func fbmNoise2D(x, y float64, octaves int, gain, lacunarity float64, seed int64) float64 {
+	if octaves <= 0 {
+		return 0.5
+	}
+	amplitude := 1.0
+	frequency := 1.0
+	sum := 0.0
+	ampAccum := 0.0
+	for i := 0; i < octaves; i++ {
+		n := perlin2D(x*frequency, y*frequency, seed+int64(i)*57)
+		sum += n * amplitude
+		ampAccum += amplitude
+		amplitude *= gain
+		frequency *= lacunarity
+	}
+	if ampAccum == 0 {
+		return 0.5
+	}
+	value := sum / ampAccum
+	return value*0.5 + 0.5
+}
+
+func perlin2D(x, y float64, seed int64) float64 {
+	x0 := math.Floor(x)
+	y0 := math.Floor(y)
+	xf := x - x0
+	yf := y - y0
+
+	ix0 := int64(x0)
+	iy0 := int64(y0)
+	ix1 := ix0 + 1
+	iy1 := iy0 + 1
+
+	g00 := gradDot(ix0, iy0, xf, yf, seed)
+	g10 := gradDot(ix1, iy0, xf-1, yf, seed)
+	g01 := gradDot(ix0, iy1, xf, yf-1, seed)
+	g11 := gradDot(ix1, iy1, xf-1, yf-1, seed)
+
+	u := fade(xf)
+	v := fade(yf)
+
+	return lerp(lerp(g00, g10, u), lerp(g01, g11, u), v)
+}
+
+func gradDot(ix, iy int64, dx, dy float64, seed int64) float64 {
+	h := hash2D(ix, iy, seed)
+	switch h & 7 {
+	case 0:
+		return dx
+	case 1:
+		return -dx
+	case 2:
+		return dy
+	case 3:
+		return -dy
+	case 4:
+		return dx + dy
+	case 5:
+		return dx - dy
+	case 6:
+		return -dx + dy
+	default:
+		return -dx - dy
+	}
+}
+
+func fade(t float64) float64 {
+	return t * t * t * (t*(t*6-15) + 10)
+}
+
+func lerp(a, b, t float64) float64 {
+	return a + (b-a)*t
+}
+
+func hash2D(x, y, seed int64) uint32 {
+	n := uint64(x)*0x9e3779b97f4a7c15 + uint64(y)*0xbf58476d1ce4e5b9 + uint64(seed)*0x94d049bb133111eb
+	n = (n ^ (n >> 30)) * 0xbf58476d1ce4e5b9
+	n = (n ^ (n >> 27)) * 0x94d049bb133111eb
+	n ^= n >> 31
+	return uint32(n & 0xffffffff)
+}
+
+func smoothstep(edge0, edge1, x float64) float64 {
+	if edge0 == edge1 {
+		return 0
+	}
+	t := clampFloat((x-edge0)/(edge1-edge0), 0, 1)
+	return t * t * (3 - 2*t)
+}
+
+func clamp01(value float64) float64 {
+	if value < 0 {
+		return 0
+	}
+	if value > 1 {
+		return 1
+	}
+	return value
+}
+
+func rainOverlapRatio(a, b rainRegion) float64 {
+	ra := math.Sqrt(a.radiusX * a.radiusY)
+	rb := math.Sqrt(b.radiusX * b.radiusY)
+	if ra <= 0 || rb <= 0 {
+		return 0
+	}
+	d := math.Hypot(a.cx-b.cx, a.cy-b.cy)
+	areaA := math.Pi * ra * ra
+	areaB := math.Pi * rb * rb
+	intersection := circleIntersectionArea(ra, rb, d)
+	if intersection <= 0 {
+		return 0
+	}
+	smaller := areaA
+	if areaB < smaller {
+		smaller = areaB
+	}
+	if smaller == 0 {
+		return 0
+	}
+	return intersection / smaller
+}
+
+func circleIntersectionArea(ra, rb, d float64) float64 {
+	if d >= ra+rb {
+		return 0
+	}
+	if d <= math.Abs(ra-rb) {
+		smaller := math.Min(ra, rb)
+		return math.Pi * smaller * smaller
+	}
+	ra2 := ra * ra
+	rb2 := rb * rb
+	part1 := ra2 * math.Acos((d*d+ra2-rb2)/(2*d*ra))
+	part2 := rb2 * math.Acos((d*d+rb2-ra2)/(2*d*rb))
+	part3 := 0.5 * math.Sqrt((-d+ra+rb)*(d+ra-rb)*(d-ra+rb)*(d+ra+rb))
+	return part1 + part2 - part3
+}
+
+func (r rainRegion) area() float64 {
+	if r.radiusX <= 0 || r.radiusY <= 0 {
+		return 0
+	}
+	return math.Pi * r.radiusX * r.radiusY
 }
 
 func (w *World) updateVolcanoMask() {
