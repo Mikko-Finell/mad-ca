@@ -65,6 +65,7 @@ func (w *World) Parameters() core.ParameterSnapshot {
 			Params: []core.Parameter{
 				floatParam("wind_noise_scale", "Wind noise scale", params.WindNoiseScale),
 				floatParam("wind_speed_scale", "Wind speed scale", params.WindSpeedScale),
+				floatParam("wind_temporal_scale", "Wind temporal scale", params.WindTemporalScale),
 			},
 		},
 		{

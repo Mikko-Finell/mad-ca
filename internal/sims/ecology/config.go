@@ -31,8 +31,9 @@ type Params struct {
 	RainStrengthMin float64
 	RainStrengthMax float64
 
-	WindNoiseScale float64
-	WindSpeedScale float64
+	WindNoiseScale    float64
+	WindSpeedScale    float64
+	WindTemporalScale float64
 
 	GrassNeighborThreshold int
 	GrassSpreadChance      float64
@@ -96,6 +97,7 @@ func DefaultConfig() Config {
 			RainStrengthMax:               1.0,
 			WindNoiseScale:                0.01,
 			WindSpeedScale:                0.6,
+			WindTemporalScale:             0.05,
 			GrassNeighborThreshold:        1,
 			GrassSpreadChance:             0.25,
 			ShrubNeighborThreshold:        3,
@@ -291,6 +293,14 @@ func FromMap(cfg map[string]string) Config {
 				parsed = 0
 			}
 			c.Params.WindSpeedScale = parsed
+		}
+	}
+	if v, ok := cfg["wind_temporal_scale"]; ok {
+		if parsed, err := strconv.ParseFloat(v, 64); err == nil {
+			if parsed < 0 {
+				parsed = 0
+			}
+			c.Params.WindTemporalScale = parsed
 		}
 	}
 	if v, ok := cfg["grass_neighbor_threshold"]; ok {
