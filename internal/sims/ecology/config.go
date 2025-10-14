@@ -20,6 +20,7 @@ type Params struct {
 	LavaCoolFlux        float64
 	LavaPhaseThreshold  float64
 	LavaPhaseHysteresis float64
+	LavaSlopeScale      float64
 	LavaReservoirMin    int
 	LavaReservoirMax    int
 	LavaReservoirGain   float64
@@ -86,20 +87,21 @@ func DefaultConfig() Config {
 			GrassPatchRadiusMin:           2,
 			GrassPatchRadiusMax:           5,
 			GrassPatchDensity:             0.6,
-			LavaSpreadChance:              0.08,
-			LavaSpreadMaskFloor:           0.2,
-			LavaFluxRef:                   2,
-			LavaCoolBase:                  0.02,
-			LavaCoolRain:                  0.08,
-			LavaCoolEdge:                  0.03,
-			LavaCoolThick:                 0.02,
-			LavaCoolFlux:                  0.02,
-			LavaPhaseThreshold:            0.15,
-			LavaPhaseHysteresis:           0.03,
-			LavaReservoirMin:              120,
-			LavaReservoirMax:              220,
-			LavaReservoirGain:             0.8,
-			LavaReservoirHead:             3.5,
+			LavaSpreadChance:              0.75,
+			LavaSpreadMaskFloor:           0.02,
+			LavaFluxRef:                   9,
+			LavaCoolBase:                  0.002,
+			LavaCoolRain:                  0.05,
+			LavaCoolEdge:                  0.003,
+			LavaCoolThick:                 0.002,
+			LavaCoolFlux:                  0.0015,
+			LavaPhaseThreshold:            0.06,
+			LavaPhaseHysteresis:           0.02,
+			LavaSlopeScale:                3,
+			LavaReservoirMin:              520,
+			LavaReservoirMax:              760,
+			LavaReservoirGain:             1.9,
+			LavaReservoirHead:             8.0,
 			BurnTTL:                       3,
 			FireSpreadChance:              0.25,
 			FireLavaIgniteChance:          0.8,
@@ -125,8 +127,8 @@ func DefaultConfig() Config {
 			VolcanoProtoMaxRegions:        6,
 			VolcanoProtoSpawnChance:       0.02,
 			VolcanoProtoTectonicThreshold: 0.6,
-			VolcanoProtoRadiusMin:         10,
-			VolcanoProtoRadiusMax:         22,
+			VolcanoProtoRadiusMin:         2,
+			VolcanoProtoRadiusMax:         4,
 			VolcanoProtoTTLMin:            10,
 			VolcanoProtoTTLMax:            25,
 			VolcanoProtoStrengthMin:       0.4,
@@ -240,6 +242,11 @@ func FromMap(cfg map[string]string) Config {
 	if v, ok := cfg["lava_phase_hysteresis"]; ok {
 		if parsed, err := strconv.ParseFloat(v, 64); err == nil && parsed >= 0 {
 			c.Params.LavaPhaseHysteresis = parsed
+		}
+	}
+	if v, ok := cfg["lava_slope_scale"]; ok {
+		if parsed, err := strconv.ParseFloat(v, 64); err == nil && parsed > 0 {
+			c.Params.LavaSlopeScale = parsed
 		}
 	}
 	if v, ok := cfg["lava_reservoir_min"]; ok {

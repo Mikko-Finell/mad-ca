@@ -117,6 +117,13 @@ func TestLavaCoolingCrustsAndSolidifies(t *testing.T) {
 	cfg.Width = 1
 	cfg.Height = 1
 	cfg.Params.GrassPatchCount = 0
+	cfg.Params.LavaSpreadChance = 0.08
+	cfg.Params.LavaFluxRef = 2
+	cfg.Params.LavaCoolBase = 0.02
+	cfg.Params.LavaCoolEdge = 0.03
+	cfg.Params.LavaCoolThick = 0.02
+	cfg.Params.LavaCoolFlux = 0.02
+	cfg.Params.LavaSlopeScale = 20
 
 	world := NewWithConfig(cfg)
 	world.Reset(0)
@@ -208,6 +215,44 @@ func TestLavaChannelReinforcement(t *testing.T) {
 	}
 	if int(world.lavaHeight[1]) >= 5 {
 		t.Fatalf("expected parent channel to thin, height=%d", world.lavaHeight[1])
+	}
+}
+
+func TestDefaultLavaReachExceedsDiameter(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Width = 128
+	cfg.Height = 128
+	cfg.Params.GrassPatchCount = 0
+	cfg.Params.RainSpawnChance = 0
+	cfg.Params.RainMaxRegions = 0
+	cfg.Params.VolcanoProtoSpawnChance = 0
+
+	world := NewWithConfig(cfg)
+	world.Reset(0)
+
+	cx := cfg.Width / 2
+	cy := cfg.Height / 2
+	world.SpawnVolcanoAt(cx, cy)
+
+	radius := float64(cfg.Params.VolcanoProtoRadiusMin)
+	if cfg.Params.VolcanoProtoRadiusMax > cfg.Params.VolcanoProtoRadiusMin {
+		radius = float64(cfg.Params.VolcanoProtoRadiusMin + (cfg.Params.VolcanoProtoRadiusMax-cfg.Params.VolcanoProtoRadiusMin)/2)
+	}
+	diameter := radius * 2
+
+	centerX := float64(cx) + 0.5
+	centerY := float64(cy) + 0.5
+
+	reach := world.FarthestLavaDistanceFrom(centerX, centerY)
+	for i := 0; i < 600; i++ {
+		world.Step()
+		if r := world.FarthestLavaDistanceFrom(centerX, centerY); r > reach {
+			reach = r
+		}
+	}
+
+	if reach < diameter {
+		t.Fatalf("expected lava to reach at least one diameter from the vent, reach=%.2f diameter=%.2f", reach, diameter)
 	}
 }
 

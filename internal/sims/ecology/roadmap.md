@@ -163,6 +163,7 @@
 * HUD renders a wind vector overlay to visualize current drift averages for active storm regions.
 * Rain drift and the HUD overlay now sample a single world-seed wind field (curl of an fBm potential), so every storm follows the same streamlines the overlay depicts.
 * HUD parameter buttons now auto-scale their step sizes, present chance values as 0–100%, and no longer clamp tuning ranges with arbitrary ceilings.
+* Latest sweep retuned lava and volcano defaults (higher vent mass, hotter slopes, and smaller cones) so eruptions now drive lava fronts past one cone diameter; see `scripts/lava_sweep/main.go` for the parameter sweep harness.
 
 **Exit Criteria**
 

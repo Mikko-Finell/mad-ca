@@ -77,6 +77,14 @@ type World struct {
 	lavaAdvancedCells []int
 }
 
+// LavaVentStatus reports high-level information for an active lava vent.
+type LavaVentStatus struct {
+	Index     int
+	OutIndex  int
+	Direction int8
+	Mass      float64
+}
+
 // VegetationMetrics captures aggregate vegetation telemetry for the current tick.
 type VegetationMetrics struct {
 	GrassTiles int
@@ -181,6 +189,7 @@ const (
 	lavaWallWeight         = 2.0
 	lavaChannelGrow        = 0.15
 	lavaChannelDecay       = 0.005
+	defaultLavaSpread      = 0.08
 )
 
 var lavaDirections = [...]lavaDirection{
@@ -373,10 +382,11 @@ func (w *World) buildLavaElevation(region volcanoProtoRegion) {
 	if headLevel < 0 {
 		headLevel = 0
 	}
-	slopeScale := float64(20 + w.rng.Intn(21))
+	slopeScale := w.cfg.Params.LavaSlopeScale
 	if slopeScale <= 0 {
 		slopeScale = 20
 	}
+	slopeScale *= 0.85 + w.rng.Float64()*0.3
 	cx := region.cx
 	cy := region.cy
 	for y := 0; y < w.h; y++ {
@@ -2725,6 +2735,11 @@ func (w *World) advanceLavaTip(idx int) bool {
 	temp := w.lavaTemp[idx]
 	forceAdvance := w.lavaForce[idx]
 	chance := lavaBaseSpeed * float64(temp) / (1 + lavaSpeedAlpha*float64(height))
+	spread := w.cfg.Params.LavaSpreadChance
+	if spread <= 0 {
+		return false
+	}
+	chance *= spread / defaultLavaSpread
 	if forceAdvance {
 		chance = 1
 	}
@@ -3159,7 +3174,15 @@ func (w *World) detectLavaTips() {
 				neighbors++
 			}
 		}
-		w.lavaTipNext[idx] = neighbors <= 2
+		maxNeighbors := 2
+		if spread := w.cfg.Params.LavaSpreadChance; spread > defaultLavaSpread {
+			extra := int(math.Floor((spread - defaultLavaSpread) / 0.05))
+			if extra > 5 {
+				extra = 5
+			}
+			maxNeighbors += extra
+		}
+		w.lavaTipNext[idx] = neighbors <= maxNeighbors
 	}
 }
 
@@ -3463,6 +3486,100 @@ func (w *World) SpawnVolcanoAt(x, y int) {
 	}
 
 	w.eruptRegion(region)
+}
+
+// LavaTileCount returns the number of tiles currently containing molten lava.
+func (w *World) LavaTileCount() int {
+	if w == nil {
+		return 0
+	}
+	total := 0
+	for _, h := range w.lavaHeight {
+		if h > 0 {
+			total++
+		}
+	}
+	return total
+}
+
+// FarthestLavaDistanceFrom reports the maximum Euclidean distance between the
+// provided point (expressed in tile-space coordinates) and any molten lava
+// tile. The computation considers tile centers when measuring distance.
+func (w *World) FarthestLavaDistanceFrom(cx, cy float64) float64 {
+	if w == nil || w.w <= 0 {
+		return 0
+	}
+	maxDist := 0.0
+	for idx, h := range w.lavaHeight {
+		if h == 0 {
+			continue
+		}
+		x := float64(idx%w.w) + 0.5
+		y := float64(idx/w.w) + 0.5
+		dx := x - cx
+		dy := y - cy
+		dist := math.Hypot(dx, dy)
+		if dist > maxDist {
+			maxDist = dist
+		}
+	}
+	return maxDist
+}
+
+// LavaVentStatuses returns a snapshot of the active lava vents.
+func (w *World) LavaVentStatuses() []LavaVentStatus {
+	if w == nil {
+		return nil
+	}
+	if len(w.lavaVents) == 0 {
+		return nil
+	}
+	statuses := make([]LavaVentStatus, 0, len(w.lavaVents))
+	for _, vent := range w.lavaVents {
+		statuses = append(statuses, LavaVentStatus{
+			Index:     vent.idx,
+			OutIndex:  vent.outIdx,
+			Direction: vent.dir,
+			Mass:      vent.massRemaining,
+		})
+	}
+	return statuses
+}
+
+// LavaAdvanceCount reports how many lava tips advanced during the most recent tick.
+func (w *World) LavaAdvanceCount() int {
+	if w == nil {
+		return 0
+	}
+	return len(w.lavaAdvancedCells)
+}
+
+// MaxLavaHeight returns the maximum lava column height present in the field.
+func (w *World) MaxLavaHeight() int {
+	if w == nil {
+		return 0
+	}
+	max := 0
+	for _, h := range w.lavaHeight {
+		if int(h) > max {
+			max = int(h)
+		}
+	}
+	return max
+}
+
+// LavaTipCount returns the number of lava tiles currently marked as tips.
+func (w *World) LavaTipCount() int {
+	if w == nil {
+		return 0
+	}
+	count := 0
+	for _, tip := range w.lavaTip {
+		if tip {
+			count++
+		}
+	}
+	return count
 }
 
 // Metrics exposes the latest vegetation telemetry.
