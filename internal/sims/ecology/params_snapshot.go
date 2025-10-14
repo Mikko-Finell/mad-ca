@@ -30,11 +30,20 @@ func (w *World) Parameters() core.ParameterSnapshot {
 		{
 			Name: "Lava",
 			Params: []core.Parameter{
-				intParam("lava_life_min", "Lava life min", params.LavaLifeMin),
-				intParam("lava_life_max", "Lava life max", params.LavaLifeMax),
 				floatParam("lava_spread_chance", "Lava spread chance", params.LavaSpreadChance),
 				floatParam("lava_spread_mask_floor", "Lava spread mask floor", params.LavaSpreadMaskFloor),
-				floatParam("lava_cooling_extra", "Lava cooling extra", params.LavaCoolingExtra),
+				floatParam("lava_flux_ref", "Lava flux reference", params.LavaFluxRef),
+				floatParam("lava_cool_base", "Lava base cooling", params.LavaCoolBase),
+				floatParam("lava_cool_rain", "Lava rain cooling", params.LavaCoolRain),
+				floatParam("lava_cool_edge", "Lava edge cooling", params.LavaCoolEdge),
+				floatParam("lava_cool_thick", "Lava thickness cooling", params.LavaCoolThick),
+				floatParam("lava_cool_flux", "Lava flux cooling", params.LavaCoolFlux),
+				floatParam("lava_phase_threshold", "Lava crust threshold", params.LavaPhaseThreshold),
+				floatParam("lava_phase_hysteresis", "Lava thermal hysteresis", params.LavaPhaseHysteresis),
+				intParam("lava_reservoir_min", "Lava reservoir min", params.LavaReservoirMin),
+				intParam("lava_reservoir_max", "Lava reservoir max", params.LavaReservoirMax),
+				floatParam("lava_reservoir_gain", "Lava reservoir gain", params.LavaReservoirGain),
+				floatParam("lava_reservoir_head", "Lava reservoir head", params.LavaReservoirHead),
 			},
 		},
 		{

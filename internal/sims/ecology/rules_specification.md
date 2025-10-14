@@ -89,7 +89,7 @@ Base strength rolls between `max(0.5, RainStrengthMin)` and `RainStrengthMax` (d
 
 ### 4.4 Coupling into simulation
 
-* Lava cooling subtracts `ΔT = 0.02 + 0.03·edge + 0.08·rain + 0.02·thicknessSigmoid` (+0.02 if the cell is pooling).【F:internal/sims/ecology/ecology.go†L2772-L2811】
+* Lava cooling subtracts `ΔT = BaseCool + EdgeCool·edge + RainCool·rain + ThickCool·σ(height) + FluxCool·(1 − clamp(q_out/LavaFluxRef, 0, 1))`, tying persistence to actual discharge. `σ(height) = 1 − e^{−height}` provides a bounded thickness term. Flux is reset each tick after cooling.【F:internal/sims/ecology/ecology.go†L2805-L2864】
 * Lava flow scoring penalizes rain via `score -= 0.5 × rain` before comparing against the flow threshold (0.9).【F:internal/sims/ecology/ecology.go†L2606-L2643】
 * Fire spread and lava ignition chances are multiplied by `1 − FireRainSpreadDampen × rain` (clamped to [0,1]); default dampen is 0.75.【F:internal/sims/ecology/ecology.go†L2897-L2978】【F:internal/sims/ecology/config.go†L80-L98】
 * Burning tiles extinguish with probability `FireRainExtinguishChance × rain` each tick (default 0.5).【F:internal/sims/ecology/ecology.go†L2930-L2957】
@@ -120,10 +120,10 @@ Base strength rolls between `max(0.5, RainStrengthMin)` and `RainStrengthMax` (d
 
 ## 6. Lava Dynamics
 
-* **Injection:** Each vent increases its tile’s lava height (capped at 7) and temperature to 1.0. Neighboring outflow cells inherit at least height 1, become lava, and are marked as tips. Vegetation and burning data on affected cells are cleared immediately.【F:internal/sims/ecology/ecology.go†L2336-L2408】
-* **Tip advancement:** Tips attempt to move forward each tick. The movement chance is `lavaBaseSpeed × temp / (1 + lavaSpeedAlpha × height)` unless forced by overflow. Candidate destinations score `1.0·slope + 0.6·alignment + 0.8·channel − 0.5·rain − 2.0·uphill`. Moves proceed when the best score ≥0.9 (or ≥0 when forced). If the source column is tall enough (height ≥3) and a second candidate scores within 0.75, a split may spawn an extra branch (25 % chance).【F:internal/sims/ecology/ecology.go†L2568-L2709】
-* **Pooling & overflow:** Failed tips thicken the trunk (up to height 7). They may fill adjacent low cells with stationary pools (`dir = -1`), which cool faster and can overflow later.【F:internal/sims/ecology/ecology.go†L2711-L2759】
-* **Cooling & crusting:** Temperature falls by the formula in §4.4. When `temp ≤ 0.15`, thick flows shed one unit of height; once height reaches 1, cooled lava solidifies to `Rock`. Heat is clamped to ≤0.35 when crusting so flows can restart gently if reheated.【F:internal/sims/ecology/ecology.go†L2772-L2823】
+* **Injection:** Each vent tracks a finite `massRemaining` reservoir and a target head height. Each tick it injects `ceil(Kp × max(0, head − surface))` units (capped by remaining mass and height limit 7), reheating the vent tile to 1.0 and refreshing the designated outlet cell as an advancing tip. Reservoir depletion removes the vent automatically.【F:internal/sims/ecology/ecology.go†L2398-L2487】
+* **Tip advancement:** Tips attempt to move forward each tick. The movement chance is `lavaBaseSpeed × temp / (1 + lavaSpeedAlpha × height)` unless forced by overflow. Candidate destinations score `1.0·slope + 0.6·alignment + 0.8·channel − 0.5·rain − 2.0·uphill`. Moves proceed when the best score ≥0.9 (or ≥0 when forced). If the source column is tall enough (height ≥3) and a second candidate scores within 0.75, a split may spawn an extra branch (25 % chance).【F:internal/sims/ecology/ecology.go†L2574-L2725】
+* **Pooling & overflow:** Failed tips thicken the trunk (up to height 7). They may fill adjacent low cells with stationary pools (`dir = -1`); low-flux pools cool fastest under the flux-weighted cooling rule and can overflow later when reheated.【F:internal/sims/ecology/ecology.go†L2727-L2797】【F:internal/sims/ecology/ecology.go†L2805-L2864】
+* **Cooling & crusting:** Flux-aware cooling from §4.4 subtracts temperature then applies a hysteresis threshold: when `temp ≤ Tc` lava sheds one unit (clamped to ≥1) and its heat is capped at `min(Tc + Teps, lavaReheatCap)`. Once thickness reaches 1 and falls below the threshold it solidifies to `Rock` and clears lava metadata.【F:internal/sims/ecology/ecology.go†L2805-L2864】
 * **Channel memory:** Tiles that advanced gain +0.15 channel weight (clamped ≤1). Global decay (0.5 % per tick) keeps flow paths semi-permanent without locking them forever.【F:internal/sims/ecology/ecology.go†L2825-L2844】
 * **Tip detection:** After updates, tips are recomputed using temperature, height, and local lava connectivity (≤2 lava neighbors).【F:internal/sims/ecology/ecology.go†L2846-L2881】
 
@@ -156,7 +156,7 @@ Burning tiles skip succession until extinguished. Metrics update after writing `
 `DefaultConfig()` creates a 256×256 world with deterministic seed 1337 and the parameter pack in `config.go`. Highlights include:
 
 * Terrain: `RockChance` 5 %, grass patch count 12 with radii 2–5 and density 0.6.【F:internal/sims/ecology/config.go†L64-L88】
-* Lava vent lifetime defaults to 20–40 ticks (`LavaLifeMin/Max`), and spread floor `LavaSpreadMaskFloor` 0.2 (currently unused but exposed for tuning).【F:internal/sims/ecology/config.go†L64-L83】
+* Lava vents draw from sampled reservoirs (`LavaReservoirMin/Max` default 120–220 units) injected with gain `LavaReservoirGain` (0.8) toward `LavaReservoirHead` (3.5). Cooling coefficients (`LavaCoolBase`, `Rain`, `Edge`, `Thick`, `Flux`) and `LavaFluxRef` (2.0) shape lava persistence alongside spread floor `LavaSpreadMaskFloor` 0.2.【F:internal/sims/ecology/config.go†L64-L113】
 * Wind: `WindNoiseScale` 0.01, `WindSpeedScale` 0.6, `WindTemporalScale` 0.05.【F:internal/sims/ecology/config.go†L80-L98】
 * All parameters are adjustable at runtime via the HUD parameter snapshot plumbing, and `FromMap` supports overriding values from CLI-style maps.【F:internal/sims/ecology/config.go†L120-L323】
 

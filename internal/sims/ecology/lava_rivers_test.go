@@ -59,66 +59,56 @@ func TestEruptionSeedsLavaRivers(t *testing.T) {
 		t.Fatal("expected eruption to create active vents")
 	}
 	for _, vent := range world.lavaVents {
-		if vent.ttl < cfg.Params.LavaLifeMin || vent.ttl > cfg.Params.LavaLifeMax {
-			t.Fatalf("vent ttl out of range: %d", vent.ttl)
+		if vent.massRemaining < float64(cfg.Params.LavaReservoirMin) || vent.massRemaining > float64(cfg.Params.LavaReservoirMax) {
+			t.Fatalf("vent mass out of range: %.2f", vent.massRemaining)
 		}
 		if vent.outIdx < 0 || vent.outIdx >= len(world.groundCurr) {
 			t.Fatalf("vent out index out of bounds: %d", vent.outIdx)
 		}
+		if vent.head != cfg.Params.LavaReservoirHead {
+			t.Fatalf("expected vent head %.2f, got %.2f", cfg.Params.LavaReservoirHead, vent.head)
+		}
 	}
 }
 
-func TestLavaLifeParametersClampActiveVents(t *testing.T) {
+func TestLavaReservoirDepletesVent(t *testing.T) {
 	cfg := DefaultConfig()
-	cfg.Width = 9
-	cfg.Height = 9
+	cfg.Width = 1
+	cfg.Height = 1
 	cfg.Params.GrassPatchCount = 0
-	cfg.Params.VolcanoProtoSpawnChance = 0
+	cfg.Params.LavaReservoirMin = 0
+	cfg.Params.LavaReservoirMax = 0
+	cfg.Params.LavaReservoirGain = 1
+	cfg.Params.LavaReservoirHead = 6
 
 	world := NewWithConfig(cfg)
 	world.Reset(0)
+	world.groundCurr[0] = GroundLava
+	world.groundNext[0] = GroundLava
+	world.lavaHeight[0] = 0
+	world.lavaHeightNext[0] = 0
+	world.lavaElevation[0] = 0
+	world.lavaVents = []lavaVent{{
+		idx:           0,
+		dir:           -1,
+		outIdx:        -1,
+		massRemaining: 10,
+		head:          cfg.Params.LavaReservoirHead,
+	}}
 
-	for i := range world.groundCurr {
-		world.groundCurr[i] = GroundRock
-		world.display[i] = uint8(GroundRock)
-	}
-
-	region := volcanoProtoRegion{
-		cx:       4.5,
-		cy:       4.5,
-		radius:   3,
-		strength: 1,
-		ttl:      0,
-	}
-
-	world.eruptRegion(region)
-
-	if len(world.lavaVents) == 0 {
-		t.Fatal("expected eruption to create active vents")
-	}
-
-	if !world.SetIntParameter("lava_life_min", 5) {
-		t.Fatal("failed to set lava life min")
-	}
-	if !world.SetIntParameter("lava_life_max", 5) {
-		t.Fatal("failed to set lava life max")
-	}
-	for _, vent := range world.lavaVents {
-		if vent.ttl != 5 {
-			t.Fatalf("expected vent ttl to clamp to new range, got %d", vent.ttl)
-		}
+	injected := 0
+	for i := 0; i < 20 && len(world.lavaVents) > 0; i++ {
+		world.processLavaVents()
+		added := int(world.lavaHeightNext[0])
+		injected += added
+		world.lavaHeightNext[0] = 0
 	}
 
-	if !world.SetIntParameter("lava_life_max", 400) {
-		t.Fatal("failed to expand lava life max")
+	if len(world.lavaVents) != 0 {
+		t.Fatalf("expected vent to deactivate after draining, remaining=%d", len(world.lavaVents))
 	}
-	if !world.SetIntParameter("lava_life_min", 300) {
-		t.Fatal("failed to expand lava life min")
-	}
-	for _, vent := range world.lavaVents {
-		if vent.ttl < 300 || vent.ttl > 400 {
-			t.Fatalf("expected vent ttl within expanded range, got %d", vent.ttl)
-		}
+	if injected != 10 {
+		t.Fatalf("expected to inject total mass 10, got %d", injected)
 	}
 }
 
@@ -351,7 +341,7 @@ func TestLavaTipSplitsWhenFluxHigh(t *testing.T) {
 	if !world.lavaTip[southEastIdx] {
 		t.Fatal("expected split advance to become a tip")
 	}
-	if world.lavaHeight[tipIdx] != 4 {
-		t.Fatalf("expected parent channel to thin after spawning children, height=%d", world.lavaHeight[tipIdx])
+	if world.lavaHeight[tipIdx] != 3 {
+		t.Fatalf("expected parent channel to shed two units after spawning children, height=%d", world.lavaHeight[tipIdx])
 	}
 }
