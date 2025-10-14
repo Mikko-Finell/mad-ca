@@ -4,6 +4,7 @@ package ui
 
 import (
 	"image/color"
+	"math"
 
 	"mad-ca/internal/core"
 
@@ -76,19 +77,36 @@ func (o *Overlay) drawMask(screen *ebiten.Image, mask []float32, tint color.RGBA
 	if len(mask) != total {
 		return
 	}
+	const (
+		maxAlpha      = 140.0
+		glowBase      = 0.35
+		glowRange     = 0.65
+		intensityBias = 0.75
+	)
+
 	for i := 0; i < total; i++ {
 		base := i * 4
-		intensity := mask[i]
+		intensity := float64(mask[i])
 		if intensity < 0 {
 			intensity = 0
 		}
 		if intensity > 1 {
 			intensity = 1
 		}
-		alpha := uint8(intensity * 180)
-		o.maskBuf[base+0] = tint.R
-		o.maskBuf[base+1] = tint.G
-		o.maskBuf[base+2] = tint.B
+		if intensity == 0 {
+			o.maskBuf[base+0] = 0
+			o.maskBuf[base+1] = 0
+			o.maskBuf[base+2] = 0
+			o.maskBuf[base+3] = 0
+			continue
+		}
+
+		alpha := uint8(math.Round(maxAlpha * math.Pow(intensity, intensityBias)))
+		glow := glowBase + glowRange*math.Sqrt(intensity)
+
+		o.maskBuf[base+0] = scaleColorComponent(tint.R, glow)
+		o.maskBuf[base+1] = scaleColorComponent(tint.G, glow)
+		o.maskBuf[base+2] = scaleColorComponent(tint.B, glow)
 		o.maskBuf[base+3] = alpha
 	}
 	o.maskImg.ReplacePixels(o.maskBuf)
@@ -99,4 +117,15 @@ func (o *Overlay) drawMask(screen *ebiten.Image, mask []float32, tint color.RGBA
 	}
 	op.GeoM.Scale(float64(scale), float64(scale))
 	screen.DrawImage(o.maskImg, op)
+}
+
+func scaleColorComponent(value uint8, factor float64) uint8 {
+	scaled := math.Round(float64(value) * factor)
+	if scaled < 0 {
+		return 0
+	}
+	if scaled > 255 {
+		return 255
+	}
+	return uint8(scaled)
 }
