@@ -3,13 +3,13 @@ SIMS := briansbrain ecology elementary life
 .PHONY: run $(SIMS) run-% build lint wasm
 
 run:
-        ./scripts/devsync.sh
+	./scripts/devsync.sh
 
 run-%:
-        ./scripts/devsync.sh -sim=$*
+	./scripts/devsync.sh -sim=$*
 
 $(SIMS):
-        ./scripts/devsync.sh -sim=$@
+	./scripts/devsync.sh -sim=$@
 
 build:
 	mkdir -p bin
