@@ -15,6 +15,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/hajimehoshi/ebiten/v2/text"
+	"golang.org/x/image/font"
 	"golang.org/x/image/font/basicfont"
 )
 
@@ -39,6 +40,10 @@ type HUD struct {
 	contentHeight int
 
 	pixel *ebiten.Image
+
+	windVX              float64
+	windVY              float64
+	windVectorAvailable bool
 }
 
 // NewHUD constructs a HUD for the provided simulation and panel width.
@@ -83,6 +88,7 @@ func (h *HUD) Update(panelOffsetX int) {
 	}
 	h.snapshot = provider.Parameters()
 	h.refreshControlValues()
+	h.updateWindVector()
 	h.handleInput()
 }
 
@@ -167,6 +173,26 @@ func (h *HUD) refreshControlValues() {
 			state.hasValue = false
 			state.value = "--"
 		}
+	}
+}
+
+func (h *HUD) updateWindVector() {
+	provider, ok := h.sim.(core.WindVectorProvider)
+	if !ok {
+		if h.windVectorAvailable {
+			h.windVectorAvailable = false
+			h.windVX = 0
+			h.windVY = 0
+			h.layoutControls()
+		}
+		return
+	}
+	vx, vy := provider.WindVectorSample()
+	h.windVX = vx
+	h.windVY = vy
+	if !h.windVectorAvailable {
+		h.windVectorAvailable = true
+		h.layoutControls()
 	}
 }
 
@@ -276,8 +302,12 @@ func (h *HUD) drawControls() {
 	face := basicfont.Face7x13
 	headerY := panelPadding + headerBaseline
 	text.Draw(h.panel, h.title, face, panelPadding, headerY, color.RGBA{R: 200, G: 200, B: 210, A: 255})
+	overlayTop := panelPadding + headerBaseline + headerGap
+	if h.windVectorAvailable {
+		h.drawWindOverlay(face, overlayTop)
+	}
 	if len(h.controls) == 0 {
-		infoY := headerY + infoSpacing
+		infoY := h.controlsTop() + emptyControlsOffset
 		text.Draw(h.panel, "No adjustable parameters", face, panelPadding, infoY, color.RGBA{R: 160, G: 160, B: 170, A: 255})
 		return
 	}
@@ -285,10 +315,11 @@ func (h *HUD) drawControls() {
 	if panelHeight == 0 && h.panel != nil {
 		panelHeight = h.panel.Bounds().Dy()
 	}
+	controlsStart := h.controlsTop()
 	for i := range h.controls {
 		state := &h.controls[i]
 		top := state.top - h.scrollOffset
-		if top+lineHeight < controlsTop {
+		if top+lineHeight < controlsStart {
 			continue
 		}
 		if panelHeight > 0 && top >= panelHeight {
@@ -389,15 +420,122 @@ func (h *HUD) drawButton(rect image.Rectangle, label string, enabled bool) {
 	text.Draw(h.panel, label, face, x, y, fg)
 }
 
+func (h *HUD) drawWindOverlay(face font.Face, top int) {
+	if h.pixel == nil || h.panel == nil {
+		return
+	}
+	rect := image.Rect(panelPadding, top, h.width-panelPadding, top+windOverlayHeight)
+	if rect.Dx() <= 0 || rect.Dy() <= 0 {
+		return
+	}
+	background := color.RGBA{R: 28, G: 30, B: 38, A: 255}
+	border := color.RGBA{R: 60, G: 64, B: 74, A: 255}
+	accent := color.RGBA{R: 120, G: 210, B: 255, A: 255}
+	axisColor := color.RGBA{R: 52, G: 54, B: 62, A: 255}
+
+	h.drawRect(rect, background)
+	h.drawRect(image.Rect(rect.Min.X, rect.Min.Y, rect.Max.X, rect.Min.Y+1), border)
+	h.drawRect(image.Rect(rect.Min.X, rect.Max.Y-1, rect.Max.X, rect.Max.Y), border)
+	h.drawRect(image.Rect(rect.Min.X, rect.Min.Y, rect.Min.X+1, rect.Max.Y), border)
+	h.drawRect(image.Rect(rect.Max.X-1, rect.Min.Y, rect.Max.X, rect.Max.Y), border)
+
+	labelX := rect.Min.X + windOverlayInnerPadding
+	labelY := top + windOverlayLabelBaseline
+	text.Draw(h.panel, "Wind", face, labelX, labelY, color.RGBA{R: 200, G: 210, B: 220, A: 255})
+
+	arrowTop := float64(top + windOverlayArrowTopPadding)
+	arrowBottom := float64(top + windOverlayHeight - windOverlayArrowBottomPadding)
+	if arrowBottom <= arrowTop {
+		arrowBottom = arrowTop + 1
+	}
+	centerY := (arrowTop + arrowBottom) * 0.5
+	centerX := float64(rect.Min.X + rect.Dx()/2)
+	horizontalRadius := float64(rect.Dx()-2*windOverlayInnerPadding) * 0.5
+	verticalRadius := (arrowBottom - arrowTop) * 0.5
+	maxRadius := math.Min(horizontalRadius, verticalRadius)
+	if maxRadius <= 0 {
+		maxRadius = 1
+	}
+
+	h.drawLine(centerX-maxRadius, centerY, centerX+maxRadius, centerY, 1, axisColor)
+	h.drawLine(centerX, centerY-maxRadius, centerX, centerY+maxRadius, 1, axisColor)
+
+	vx := h.windVX
+	vy := h.windVY
+	speed := math.Hypot(vx, vy)
+	if speed < 1e-5 {
+		dot := math.Min(maxRadius*0.2, 3)
+		h.drawLine(centerX-dot, centerY, centerX+dot, centerY, windArrowThickness, accent)
+		h.drawLine(centerX, centerY-dot, centerX, centerY+dot, windArrowThickness, accent)
+	} else {
+		nx := vx / speed
+		ny := vy / speed
+		length := maxRadius * math.Min(1, speed/windDisplayMaxSpeed)
+		tail := length * 0.35
+		startX := centerX - nx*tail
+		startY := centerY - ny*tail
+		endX := centerX + nx*length
+		endY := centerY + ny*length
+		h.drawLine(startX, startY, endX, endY, windArrowThickness, accent)
+		headLength := math.Min(10.0, length*0.4)
+		angle := math.Atan2(ny, nx)
+		h.drawLine(endX, endY, endX-math.Cos(angle-math.Pi/6)*headLength, endY-math.Sin(angle-math.Pi/6)*headLength, windArrowThickness, accent)
+		h.drawLine(endX, endY, endX-math.Cos(angle+math.Pi/6)*headLength, endY-math.Sin(angle+math.Pi/6)*headLength, windArrowThickness, accent)
+	}
+
+	info := fmt.Sprintf("vx %+0.2f  vy %+0.2f  | speed %0.2f", vx, vy, speed)
+	infoY := top + windOverlayHeight - windOverlayInfoPadding
+	text.Draw(h.panel, info, face, labelX, infoY, color.RGBA{R: 180, G: 195, B: 205, A: 255})
+}
+
+func (h *HUD) drawRect(rect image.Rectangle, col color.RGBA) {
+	if h.pixel == nil {
+		return
+	}
+	op := &ebiten.DrawImageOptions{}
+	op.GeoM.Scale(float64(rect.Dx()), float64(rect.Dy()))
+	op.GeoM.Translate(float64(rect.Min.X), float64(rect.Min.Y))
+	op.ColorM.Scale(float64(col.R)/255.0, float64(col.G)/255.0, float64(col.B)/255.0, float64(col.A)/255.0)
+	h.panel.DrawImage(h.pixel, op)
+}
+
+func (h *HUD) drawLine(x1, y1, x2, y2, thickness float64, col color.RGBA) {
+	if h.pixel == nil || thickness <= 0 {
+		return
+	}
+	dx := x2 - x1
+	dy := y2 - y1
+	length := math.Hypot(dx, dy)
+	if length <= 1e-5 {
+		return
+	}
+	op := &ebiten.DrawImageOptions{}
+	op.GeoM.Scale(length, thickness)
+	op.GeoM.Translate(0, -thickness/2)
+	op.GeoM.Rotate(math.Atan2(dy, dx))
+	op.GeoM.Translate(x1, y1)
+	op.ColorM.Scale(float64(col.R)/255.0, float64(col.G)/255.0, float64(col.B)/255.0, float64(col.A)/255.0)
+	h.panel.DrawImage(h.pixel, op)
+}
+
+func (h *HUD) controlsTop() int {
+	top := panelPadding + headerBaseline + headerGap
+	if h.windVectorAvailable {
+		top += windOverlayHeight + windOverlayGap
+	}
+	return top
+}
+
 func (h *HUD) layoutControls() {
+	controlsStart := h.controlsTop()
 	if len(h.controls) == 0 || h.width <= 0 {
-		h.contentHeight = controlsTop + panelPadding
+		h.contentHeight = controlsStart + panelPadding
 		h.clampScroll()
 		return
 	}
-	contentBottom := controlsTop
+	contentBottom := controlsStart
 	for i := range h.controls {
-		top := controlsTop + i*lineHeight
+		top := controlsStart + i*lineHeight
 		buttonY := top + buttonRowTop
 		plusRect := image.Rect(h.width-panelPadding-buttonSize, buttonY, h.width-panelPadding, buttonY+buttonSize)
 		minusRect := image.Rect(plusRect.Min.X-buttonGap-buttonSize, buttonY, plusRect.Min.X-buttonGap, buttonY+buttonSize)
@@ -449,17 +587,26 @@ type hudControlState struct {
 }
 
 const (
-	panelPadding   = 12
-	lineHeight     = 50
-	buttonSize     = 16
-	buttonGap      = 6
-	headerBaseline = 18
-	labelBaseline  = 24
-	valueBaseline  = 38
-	buttonRowTop   = 28
-	infoSpacing    = 36
-	controlsTop    = panelPadding + headerBaseline + 14
-	scrollStep     = 24
+	panelPadding                  = 12
+	lineHeight                    = 50
+	buttonSize                    = 16
+	buttonGap                     = 6
+	headerBaseline                = 18
+	labelBaseline                 = 24
+	valueBaseline                 = 38
+	buttonRowTop                  = 28
+	headerGap                     = 14
+	windOverlayHeight             = 96
+	windOverlayGap                = 10
+	windOverlayInnerPadding       = 12
+	windOverlayLabelBaseline      = 22
+	windOverlayArrowTopPadding    = 30
+	windOverlayArrowBottomPadding = 30
+	windOverlayInfoPadding        = 12
+	windArrowThickness            = 2.0
+	windDisplayMaxSpeed           = 1.0
+	emptyControlsOffset           = 54
+	scrollStep                    = 24
 )
 
 func (h *HUD) scrollBy(delta int) {

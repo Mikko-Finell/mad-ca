@@ -1141,6 +1141,37 @@ func TestRainTuningRestoresCycleVariability(t *testing.T) {
 	}
 }
 
+func TestWindVectorSample(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Width = 48
+	cfg.Height = 48
+	world := NewWithConfig(cfg)
+	world.Reset(0)
+
+	world.rainRegions = []rainRegion{
+		{vx: 0.6, vy: -0.2},
+		{vx: -0.2, vy: 0.4},
+		{vx: 0.1, vy: 0.5},
+	}
+
+	vx, vy := world.WindVectorSample()
+	expectedVX := (0.6 - 0.2 + 0.1) / 3
+	expectedVY := (-0.2 + 0.4 + 0.5) / 3
+	if math.Abs(vx-expectedVX) > 1e-6 {
+		t.Fatalf("expected average vx %.3f, got %.3f", expectedVX, vx)
+	}
+	if math.Abs(vy-expectedVY) > 1e-6 {
+		t.Fatalf("expected average vy %.3f, got %.3f", expectedVY, vy)
+	}
+
+	world.rainRegions = nil
+	expectedCenterVX, expectedCenterVY := world.windVector(float64(world.w)*0.5, float64(world.h)*0.5, world.cfg.Seed)
+	vx, vy = world.WindVectorSample()
+	if math.Abs(vx-expectedCenterVX) > 1e-6 || math.Abs(vy-expectedCenterVY) > 1e-6 {
+		t.Fatalf("expected fallback wind vector (%.4f, %.4f), got (%.4f, %.4f)", expectedCenterVX, expectedCenterVY, vx, vy)
+	}
+}
+
 type rainTelemetry struct {
 	LavaMean          float64
 	LavaMax           int
