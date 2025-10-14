@@ -68,12 +68,37 @@ type World struct {
 	volcanoRegions       []volcanoProtoRegion
 	expiredVolcanoProtos []volcanoProtoRegion
 	lavaVents            []lavaVent
+	lavaReservoir        lavaReservoir
 
 	windPhase float64
 
 	lavaTipQueue      []int
 	lavaFailedTips    []int
 	lavaAdvancedCells []int
+}
+
+type lavaReservoir struct {
+	cells []int
+	ticks int
+}
+
+func (r *lavaReservoir) reset() {
+	if r == nil {
+		return
+	}
+	r.cells = r.cells[:0]
+	r.ticks = 0
+}
+
+func (r *lavaReservoir) assign(cells []int, ticks int) {
+	if r == nil {
+		return
+	}
+	r.cells = append(r.cells[:0], cells...)
+	if ticks < 0 {
+		ticks = 0
+	}
+	r.ticks = ticks
 }
 
 // VegetationMetrics captures aggregate vegetation telemetry for the current tick.
@@ -162,30 +187,32 @@ type lavaCandidate struct {
 }
 
 const (
-	lavaMaxHeight          = 7
-	lavaFluxPerTick        = 1
-	lavaFlowThreshold      = 0.9
-	lavaSplitThresholdDrop = 0.15
-	lavaSplitMinHeight     = 3
-	lavaSplitChance        = 0.25
-	lavaOverflowHeight     = 4
-	lavaBaseSpeed          = 0.9
-	lavaSpeedAlpha         = 0.3
-	lavaCoolBase           = 0.02
-	lavaCoolEdge           = 0.03
-	lavaCoolRain           = 0.08
-	lavaCoolThick          = 0.02
-	lavaCoolPoolBonus      = 0.02
-	lavaCrustThreshold     = 0.15
-	lavaTipTemperatureMin  = 0.12
-	lavaReheatCap          = 0.35
-	lavaSlopeWeight        = 1.0
-	lavaAlignWeight        = 0.6
-	lavaChannelWeight      = 0.8
-	lavaRainWeight         = 0.5
-	lavaWallWeight         = 2.0
-	lavaChannelGrow        = 0.15
-	lavaChannelDecay       = 0.005
+	lavaMaxHeight             = 7
+	lavaFluxPerTick           = 1
+	lavaFlowThreshold         = 0.9
+	lavaSplitThresholdDrop    = 0.15
+	lavaSplitMinHeight        = 3
+	lavaSplitChance           = 0.25
+	lavaOverflowHeight        = 4
+	lavaBaseSpeed             = 0.9
+	lavaSpeedAlpha            = 0.3
+	lavaCoolBase              = 0.02
+	lavaCoolEdge              = 0.03
+	lavaCoolRain              = 0.08
+	lavaCoolThick             = 0.02
+	lavaCoolFlowBonus         = 0.02
+	lavaCrustThreshold        = 0.15
+	lavaTipTemperatureMin     = 0.12
+	lavaReheatCap             = 0.35
+	lavaSlopeWeight           = 1.0
+	lavaAlignWeight           = 0.6
+	lavaChannelWeight         = 0.8
+	lavaRainWeight            = 0.5
+	lavaWallWeight            = 2.0
+	lavaChannelGrow           = 0.15
+	lavaChannelDecay          = 0.005
+	lavaReservoirTargetHeight = 3
+	lavaReservoirMinTemp      = 0.75
 )
 
 var lavaDirections = [...]lavaDirection{
@@ -724,6 +751,7 @@ func NewWithConfig(cfg Config) *World {
 		tectonic:       loadTectonicMap(cfg.Width, cfg.Height),
 		display:        make([]uint8, total),
 		rng:            rand.New(rand.NewSource(cfg.Seed)),
+		lavaReservoir:  lavaReservoir{cells: make([]int, 0)},
 	}
 	return w
 }
@@ -820,6 +848,7 @@ func (w *World) Reset(seed int64) {
 	w.volcanoRegions = w.volcanoRegions[:0]
 	w.expiredVolcanoProtos = w.expiredVolcanoProtos[:0]
 	w.lavaVents = w.lavaVents[:0]
+	w.lavaReservoir.reset()
 	w.lavaTipQueue = w.lavaTipQueue[:0]
 	w.lavaFailedTips = w.lavaFailedTips[:0]
 	w.lavaAdvancedCells = w.lavaAdvancedCells[:0]
@@ -2107,6 +2136,7 @@ func (w *World) eruptRegion(region volcanoProtoRegion) {
 		return
 	}
 
+	w.lavaReservoir.reset()
 	w.clearLavaField()
 	w.lavaVents = w.lavaVents[:0]
 	for i := range w.lavaChannel {
@@ -2216,12 +2246,14 @@ func (w *World) eruptRegion(region volcanoProtoRegion) {
 		lifeMax = lifeMin
 	}
 
+	ttlSum := 0
 	for i := 0; i < vents; i++ {
 		idx := coreCells[i]
 		ttl := lifeMin
 		if lifeMax > lifeMin {
 			ttl += w.rng.Intn(lifeMax - lifeMin + 1)
 		}
+		ttlSum += ttl
 		outIdx, dir, downhill := w.pickDownhill(idx)
 		if !downhill {
 			if outIdx < 0 {
@@ -2249,6 +2281,14 @@ func (w *World) eruptRegion(region volcanoProtoRegion) {
 				w.lavaTipNext[outIdx] = true
 			}
 		}
+	}
+
+	if ttlSum > 0 && len(w.lavaVents) > 0 {
+		avg := ttlSum / len(w.lavaVents)
+		if avg < 1 {
+			avg = 1
+		}
+		w.lavaReservoir.assign(coreCells, avg)
 	}
 }
 
@@ -2408,6 +2448,7 @@ func (w *World) applyLava() {
 
 	w.lavaAdvancedCells = w.lavaAdvancedCells[:0]
 	w.processLavaVents()
+	w.feedCalderaReservoir()
 
 	w.lavaTipQueue = w.lavaTipQueue[:0]
 	for idx := 0; idx < total; idx++ {
@@ -2799,6 +2840,46 @@ func (w *World) poolFailedTips() {
 	}
 }
 
+func (w *World) feedCalderaReservoir() {
+	res := &w.lavaReservoir
+	if res == nil || res.ticks <= 0 || len(res.cells) == 0 {
+		return
+	}
+	for _, idx := range res.cells {
+		if idx < 0 || idx >= len(w.groundNext) {
+			continue
+		}
+		if w.groundNext[idx] != GroundLava {
+			continue
+		}
+		height := int(w.lavaHeightNext[idx])
+		if height < lavaReservoirTargetHeight {
+			height = lavaReservoirTargetHeight
+			if height > lavaMaxHeight {
+				height = lavaMaxHeight
+			}
+			w.lavaHeightNext[idx] = uint8(height)
+		}
+		if height >= lavaOverflowHeight {
+			w.lavaForceNext[idx] = true
+		}
+		temp := float64(w.lavaTempNext[idx])
+		if temp < lavaReservoirMinTemp {
+			temp = lavaReservoirMinTemp
+		}
+		if temp > 1 {
+			temp = 1
+		}
+		w.lavaTempNext[idx] = float32(temp)
+		w.lavaDirNext[idx] = -1
+		w.lavaTipNext[idx] = false
+	}
+	res.ticks--
+	if res.ticks <= 0 {
+		res.reset()
+	}
+}
+
 func (w *World) coolLavaCells() {
 	total := w.w * w.h
 	for idx := 0; idx < total; idx++ {
@@ -2841,8 +2922,8 @@ func (w *World) coolLavaCells() {
 			rain = float64(w.rainCurr[idx])
 		}
 		cool := lavaCoolBase + lavaCoolEdge*edgeFactor + lavaCoolRain*rain + lavaCoolThick*lavaSigmoid(float64(height-2))
-		if w.lavaDirNext[idx] < 0 {
-			cool += lavaCoolPoolBonus
+		if w.lavaDirNext[idx] >= 0 {
+			cool += lavaCoolFlowBonus
 		}
 		temp := float64(w.lavaTempNext[idx]) - cool
 		if temp < 0 {

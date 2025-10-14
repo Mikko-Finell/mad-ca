@@ -138,7 +138,7 @@ func TestLavaCoolingCrustsAndSolidifies(t *testing.T) {
 	world.lavaTip[0] = false
 	world.lavaElevation[0] = 3
 
-	for i := 0; i < 40; i++ {
+	for i := 0; i < 60; i++ {
 		world.applyLava()
 	}
 
@@ -182,6 +182,36 @@ func TestRainAcceleratesLavaCooling(t *testing.T) {
 
 	if rainyTemp >= dryTemp {
 		t.Fatalf("expected rain to cool lava faster, dry=%.3f rainy=%.3f", dryTemp, rainyTemp)
+	}
+}
+
+func TestCalderaReservoirReheatsPool(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Width = 1
+	cfg.Height = 1
+	cfg.Params.GrassPatchCount = 0
+
+	world := NewWithConfig(cfg)
+	world.Reset(0)
+
+	world.groundCurr[0] = GroundLava
+	world.groundNext[0] = GroundLava
+	world.lavaHeight[0] = 1
+	world.lavaHeightNext[0] = 1
+	world.lavaTemp[0] = 0.2
+	world.lavaTempNext[0] = 0.2
+	world.lavaReservoir.assign([]int{0}, 2)
+
+	world.feedCalderaReservoir()
+
+	if world.lavaReservoir.ticks != 1 {
+		t.Fatalf("expected reservoir ticks to decrement, got %d", world.lavaReservoir.ticks)
+	}
+	if int(world.lavaHeightNext[0]) < lavaReservoirTargetHeight {
+		t.Fatalf("expected reservoir to thicken pool to at least %d, got %d", lavaReservoirTargetHeight, world.lavaHeightNext[0])
+	}
+	if float64(world.lavaTempNext[0]) < lavaReservoirMinTemp {
+		t.Fatalf("expected reservoir to reheat pool to >=%.2f, got %.3f", lavaReservoirMinTemp, world.lavaTempNext[0])
 	}
 }
 

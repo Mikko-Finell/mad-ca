@@ -89,7 +89,7 @@ Base strength rolls between `max(0.5, RainStrengthMin)` and `RainStrengthMax` (d
 
 ### 4.4 Coupling into simulation
 
-* Lava cooling subtracts `ΔT = 0.02 + 0.03·edge + 0.08·rain + 0.02·thicknessSigmoid` (+0.02 if the cell is pooling).【F:internal/sims/ecology/ecology.go†L2772-L2811】
+* Lava cooling subtracts `ΔT = 0.02 + 0.03·edge + 0.08·rain + 0.02·thicknessSigmoid` (+0.02 if the cell is flowing with a heading).【F:internal/sims/ecology/ecology.go†L2924-L2927】
 * Lava flow scoring penalizes rain via `score -= 0.5 × rain` before comparing against the flow threshold (0.9).【F:internal/sims/ecology/ecology.go†L2606-L2643】
 * Fire spread and lava ignition chances are multiplied by `1 − FireRainSpreadDampen × rain` (clamped to [0,1]); default dampen is 0.75.【F:internal/sims/ecology/ecology.go†L2897-L2978】【F:internal/sims/ecology/config.go†L80-L98】
 * Burning tiles extinguish with probability `FireRainExtinguishChance × rain` each tick (default 0.5).【F:internal/sims/ecology/ecology.go†L2930-L2957】
@@ -122,7 +122,7 @@ Base strength rolls between `max(0.5, RainStrengthMin)` and `RainStrengthMax` (d
 
 * **Injection:** Each vent increases its tile’s lava height (capped at 7) and temperature to 1.0. Neighboring outflow cells inherit at least height 1, become lava, and are marked as tips. Vegetation and burning data on affected cells are cleared immediately.【F:internal/sims/ecology/ecology.go†L2336-L2408】
 * **Tip advancement:** Tips attempt to move forward each tick. The movement chance is `lavaBaseSpeed × temp / (1 + lavaSpeedAlpha × height)` unless forced by overflow. Candidate destinations score `1.0·slope + 0.6·alignment + 0.8·channel − 0.5·rain − 2.0·uphill`. Moves proceed when the best score ≥0.9 (or ≥0 when forced). If the source column is tall enough (height ≥3) and a second candidate scores within 0.75, a split may spawn an extra branch (25 % chance).【F:internal/sims/ecology/ecology.go†L2568-L2709】
-* **Pooling & overflow:** Failed tips thicken the trunk (up to height 7). They may fill adjacent low cells with stationary pools (`dir = -1`), which cool faster and can overflow later.【F:internal/sims/ecology/ecology.go†L2711-L2759】
+* **Pooling & overflow:** Failed tips thicken the trunk (up to height 7). They may fill adjacent low cells with stationary pools (`dir = -1`). Caldera pools seeded during eruptions tap an underground reservoir that reheats them for roughly the average vent lifetime, keeping heights near 3 and encouraging overflow into rivers before they crust.【F:internal/sims/ecology/ecology.go†L2134-L2292】【F:internal/sims/ecology/ecology.go†L2449-L2452】【F:internal/sims/ecology/ecology.go†L2843-L2880】
 * **Cooling & crusting:** Temperature falls by the formula in §4.4. When `temp ≤ 0.15`, thick flows shed one unit of height; once height reaches 1, cooled lava solidifies to `Rock`. Heat is clamped to ≤0.35 when crusting so flows can restart gently if reheated.【F:internal/sims/ecology/ecology.go†L2772-L2823】
 * **Channel memory:** Tiles that advanced gain +0.15 channel weight (clamped ≤1). Global decay (0.5 % per tick) keeps flow paths semi-permanent without locking them forever.【F:internal/sims/ecology/ecology.go†L2825-L2844】
 * **Tip detection:** After updates, tips are recomputed using temperature, height, and local lava connectivity (≤2 lava neighbors).【F:internal/sims/ecology/ecology.go†L2846-L2881】
