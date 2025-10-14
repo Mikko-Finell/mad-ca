@@ -33,21 +33,32 @@ type World struct {
 
 	w, h int
 
-	groundCurr  []Ground
-	groundNext  []Ground
-	vegCurr     []Vegetation
-	vegNext     []Vegetation
-	lavaLife    []uint8
-	lavaNext    []uint8
-	burnTTL     []uint8
-	burnNext    []uint8
-	rainCurr    []float32
-	rainNext    []float32
-	rainScratch []float32
-	volCurr     []float32
-	volNext     []float32
-	tectonic    []float32
-	display     []uint8
+	groundCurr     []Ground
+	groundNext     []Ground
+	vegCurr        []Vegetation
+	vegNext        []Vegetation
+	lavaHeight     []uint8
+	lavaHeightNext []uint8
+	lavaTemp       []float32
+	lavaTempNext   []float32
+	lavaDir        []int8
+	lavaDirNext    []int8
+	lavaTip        []bool
+	lavaTipNext    []bool
+	lavaForce      []bool
+	lavaForceNext  []bool
+	lavaChannel    []float32
+	lavaElevation  []int16
+	lavaNoise      []int8
+	burnTTL        []uint8
+	burnNext       []uint8
+	rainCurr       []float32
+	rainNext       []float32
+	rainScratch    []float32
+	volCurr        []float32
+	volNext        []float32
+	tectonic       []float32
+	display        []uint8
 
 	rng *rand.Rand
 
@@ -56,6 +67,11 @@ type World struct {
 	rainRegions          []rainRegion
 	volcanoRegions       []volcanoProtoRegion
 	expiredVolcanoProtos []volcanoProtoRegion
+	lavaVents            []lavaVent
+
+	lavaTipQueue      []int
+	lavaFailedTips    []int
+	lavaAdvancedCells []int
 }
 
 // VegetationMetrics captures aggregate vegetation telemetry for the current tick.
@@ -121,6 +137,279 @@ type rainRegion struct {
 	angle              float64
 	preset             rainPreset
 	mergeTicks         int
+}
+
+type lavaVent struct {
+	idx    int
+	ttl    int
+	dir    int8
+	outIdx int
+}
+
+type lavaDirection struct {
+	dx int
+	dy int
+	ux float64
+	uy float64
+}
+
+type lavaCandidate struct {
+	idx   int
+	dir   int8
+	score float64
+}
+
+const (
+	lavaMaxHeight          = 7
+	lavaVentLifetimeMin    = 20
+	lavaVentLifetimeMax    = 40
+	lavaFluxPerTick        = 1
+	lavaFlowThreshold      = 0.9
+	lavaSplitThresholdDrop = 0.15
+	lavaSplitMinHeight     = 3
+	lavaSplitChance        = 0.25
+	lavaOverflowHeight     = 4
+	lavaBaseSpeed          = 0.9
+	lavaSpeedAlpha         = 0.3
+	lavaCoolBase           = 0.02
+	lavaCoolEdge           = 0.03
+	lavaCoolRain           = 0.08
+	lavaCoolThick          = 0.02
+	lavaCoolPoolBonus      = 0.02
+	lavaCrustThreshold     = 0.15
+	lavaTipTemperatureMin  = 0.12
+	lavaReheatCap          = 0.35
+	lavaSlopeWeight        = 1.0
+	lavaAlignWeight        = 0.6
+	lavaChannelWeight      = 0.8
+	lavaRainWeight         = 0.5
+	lavaWallWeight         = 2.0
+	lavaChannelGrow        = 0.15
+	lavaChannelDecay       = 0.005
+)
+
+var lavaDirections = [...]lavaDirection{
+	{dx: 1, dy: 0, ux: 1, uy: 0},
+	{dx: 1, dy: 1, ux: 1 / math.Sqrt2, uy: 1 / math.Sqrt2},
+	{dx: 0, dy: 1, ux: 0, uy: 1},
+	{dx: -1, dy: 1, ux: -1 / math.Sqrt2, uy: 1 / math.Sqrt2},
+	{dx: -1, dy: 0, ux: -1, uy: 0},
+	{dx: -1, dy: -1, ux: -1 / math.Sqrt2, uy: -1 / math.Sqrt2},
+	{dx: 0, dy: -1, ux: 0, uy: -1},
+	{dx: 1, dy: -1, ux: 1 / math.Sqrt2, uy: -1 / math.Sqrt2},
+}
+
+func lavaDirFromDelta(dx, dy int) int8 {
+	for i, dir := range lavaDirections {
+		if dir.dx == dx && dir.dy == dy {
+			return int8(i)
+		}
+	}
+	return -1
+}
+
+func lavaLeft(dir int8) int8 {
+	if dir < 0 {
+		return -1
+	}
+	return int8((int(dir) + len(lavaDirections) - 1) % len(lavaDirections))
+}
+
+func lavaRight(dir int8) int8 {
+	if dir < 0 {
+		return -1
+	}
+	return int8((int(dir) + 1) % len(lavaDirections))
+}
+
+func lavaDot(a, b int8) float64 {
+	if a < 0 || b < 0 {
+		return 0
+	}
+	da := lavaDirections[a]
+	db := lavaDirections[b]
+	return da.ux*db.ux + da.uy*db.uy
+}
+
+func lavaSigmoid(x float64) float64 {
+	return 1 / (1 + math.Exp(-x))
+}
+
+func (w *World) setLavaCell(idx int, height int, temp float32, dir int8, tip bool) {
+	if idx < 0 || idx >= len(w.groundCurr) {
+		return
+	}
+	if height <= 0 {
+		w.groundCurr[idx] = GroundRock
+		if idx < len(w.lavaHeight) {
+			w.lavaHeight[idx] = 0
+		}
+		if idx < len(w.lavaHeightNext) {
+			w.lavaHeightNext[idx] = 0
+		}
+		if idx < len(w.lavaTemp) {
+			w.lavaTemp[idx] = 0
+		}
+		if idx < len(w.lavaTempNext) {
+			w.lavaTempNext[idx] = 0
+		}
+		if idx < len(w.lavaDir) {
+			w.lavaDir[idx] = -1
+		}
+		if idx < len(w.lavaDirNext) {
+			w.lavaDirNext[idx] = -1
+		}
+		if idx < len(w.lavaTip) {
+			w.lavaTip[idx] = false
+		}
+		if idx < len(w.lavaTipNext) {
+			w.lavaTipNext[idx] = false
+		}
+		if idx < len(w.lavaForce) {
+			w.lavaForce[idx] = false
+		}
+		if idx < len(w.lavaForceNext) {
+			w.lavaForceNext[idx] = false
+		}
+		return
+	}
+	if height > lavaMaxHeight {
+		height = lavaMaxHeight
+	}
+	if temp < 0 {
+		temp = 0
+	}
+	if temp > 1 {
+		temp = 1
+	}
+	w.groundCurr[idx] = GroundLava
+	if idx < len(w.lavaHeight) {
+		w.lavaHeight[idx] = uint8(height)
+	}
+	if idx < len(w.lavaHeightNext) {
+		w.lavaHeightNext[idx] = uint8(height)
+	}
+	if idx < len(w.lavaTemp) {
+		w.lavaTemp[idx] = temp
+	}
+	if idx < len(w.lavaTempNext) {
+		w.lavaTempNext[idx] = temp
+	}
+	if idx < len(w.lavaDir) {
+		w.lavaDir[idx] = dir
+	}
+	if idx < len(w.lavaDirNext) {
+		w.lavaDirNext[idx] = dir
+	}
+	if idx < len(w.lavaTip) {
+		w.lavaTip[idx] = tip
+	}
+	if idx < len(w.lavaTipNext) {
+		w.lavaTipNext[idx] = tip
+	}
+	overflow := height >= lavaOverflowHeight
+	if idx < len(w.lavaForce) {
+		w.lavaForce[idx] = overflow
+	}
+	if idx < len(w.lavaForceNext) {
+		w.lavaForceNext[idx] = overflow
+	}
+	if idx < len(w.vegCurr) {
+		w.vegCurr[idx] = VegetationNone
+	}
+	if idx < len(w.vegNext) {
+		w.vegNext[idx] = VegetationNone
+	}
+	if idx < len(w.burnTTL) {
+		w.burnTTL[idx] = 0
+	}
+	if idx < len(w.burnNext) {
+		w.burnNext[idx] = 0
+	}
+	if idx < len(w.display) {
+		w.display[idx] = uint8(GroundLava)
+	}
+}
+
+func (w *World) buildLavaElevation(region volcanoProtoRegion) {
+	total := w.w * w.h
+	if total == 0 || len(w.lavaElevation) != total {
+		return
+	}
+	slopeScale := float64(20 + w.rng.Intn(21))
+	if slopeScale <= 0 {
+		slopeScale = 20
+	}
+	cx := region.cx
+	cy := region.cy
+	for y := 0; y < w.h; y++ {
+		for x := 0; x < w.w; x++ {
+			idx := y*w.w + x
+			base := int16(3)
+			if idx < len(w.groundCurr) {
+				switch w.groundCurr[idx] {
+				case GroundRock:
+					base = 4
+				case GroundMountain:
+					base = 6
+				}
+			}
+			noise := int16(0)
+			if idx < len(w.lavaNoise) {
+				noise = int16(w.lavaNoise[idx])
+			}
+			dx := (float64(x) + 0.5) - cx
+			dy := (float64(y) + 0.5) - cy
+			dist := math.Sqrt(dx*dx + dy*dy)
+			slope := int16(math.Round(dist / slopeScale))
+			w.lavaElevation[idx] = base + noise - slope
+		}
+	}
+}
+
+func (w *World) clearLavaField() {
+	for idx := range w.groundCurr {
+		if w.groundCurr[idx] != GroundLava {
+			continue
+		}
+		w.setLavaCell(idx, 0, 0, -1, false)
+		if idx < len(w.display) {
+			w.display[idx] = uint8(w.groundCurr[idx])
+		}
+	}
+}
+
+func (w *World) pickDownhill(idx int) (int, int8, bool) {
+	if idx < 0 || idx >= len(w.lavaElevation) || w.w == 0 {
+		return -1, -1, false
+	}
+	base := w.lavaElevation[idx]
+	x := idx % w.w
+	y := idx / w.w
+	bestIdx := -1
+	bestDir := int8(-1)
+	var bestDrop int16 = math.MinInt16
+	for dirIdx, dir := range lavaDirections {
+		nx := x + dir.dx
+		ny := y + dir.dy
+		if nx < 0 || nx >= w.w || ny < 0 || ny >= w.h {
+			continue
+		}
+		nIdx := ny*w.w + nx
+		if nIdx < 0 || nIdx >= len(w.lavaElevation) {
+			continue
+		}
+		drop := base - w.lavaElevation[nIdx]
+		if drop > bestDrop {
+			bestDrop = drop
+			bestIdx = nIdx
+			bestDir = int8(dirIdx)
+		}
+	}
+	if bestIdx < 0 {
+		return -1, -1, false
+	}
+	return bestIdx, bestDir, bestDrop > 0
 }
 
 type rainPreset int
@@ -270,25 +559,36 @@ func NewWithConfig(cfg Config) *World {
 		total = 0
 	}
 	w := &World{
-		cfg:         cfg,
-		w:           cfg.Width,
-		h:           cfg.Height,
-		groundCurr:  make([]Ground, total),
-		groundNext:  make([]Ground, total),
-		vegCurr:     make([]Vegetation, total),
-		vegNext:     make([]Vegetation, total),
-		lavaLife:    make([]uint8, total),
-		lavaNext:    make([]uint8, total),
-		burnTTL:     make([]uint8, total),
-		burnNext:    make([]uint8, total),
-		rainCurr:    make([]float32, total),
-		rainNext:    make([]float32, total),
-		rainScratch: make([]float32, total),
-		volCurr:     make([]float32, total),
-		volNext:     make([]float32, total),
-		tectonic:    loadTectonicMap(cfg.Width, cfg.Height),
-		display:     make([]uint8, total),
-		rng:         rand.New(rand.NewSource(cfg.Seed)),
+		cfg:            cfg,
+		w:              cfg.Width,
+		h:              cfg.Height,
+		groundCurr:     make([]Ground, total),
+		groundNext:     make([]Ground, total),
+		vegCurr:        make([]Vegetation, total),
+		vegNext:        make([]Vegetation, total),
+		lavaHeight:     make([]uint8, total),
+		lavaHeightNext: make([]uint8, total),
+		lavaTemp:       make([]float32, total),
+		lavaTempNext:   make([]float32, total),
+		lavaDir:        make([]int8, total),
+		lavaDirNext:    make([]int8, total),
+		lavaTip:        make([]bool, total),
+		lavaTipNext:    make([]bool, total),
+		lavaForce:      make([]bool, total),
+		lavaForceNext:  make([]bool, total),
+		lavaChannel:    make([]float32, total),
+		lavaElevation:  make([]int16, total),
+		lavaNoise:      make([]int8, total),
+		burnTTL:        make([]uint8, total),
+		burnNext:       make([]uint8, total),
+		rainCurr:       make([]float32, total),
+		rainNext:       make([]float32, total),
+		rainScratch:    make([]float32, total),
+		volCurr:        make([]float32, total),
+		volNext:        make([]float32, total),
+		tectonic:       loadTectonicMap(cfg.Width, cfg.Height),
+		display:        make([]uint8, total),
+		rng:            rand.New(rand.NewSource(cfg.Seed)),
 	}
 	return w
 }
@@ -333,8 +633,21 @@ func (w *World) Reset(seed int64) {
 		w.groundNext[i] = GroundDirt
 		w.vegCurr[i] = VegetationNone
 		w.vegNext[i] = VegetationNone
-		w.lavaLife[i] = 0
-		w.lavaNext[i] = 0
+		w.lavaHeight[i] = 0
+		w.lavaHeightNext[i] = 0
+		w.lavaTemp[i] = 0
+		w.lavaTempNext[i] = 0
+		w.lavaDir[i] = -1
+		w.lavaDirNext[i] = -1
+		w.lavaTip[i] = false
+		w.lavaTipNext[i] = false
+		w.lavaForce[i] = false
+		w.lavaForceNext[i] = false
+		w.lavaChannel[i] = 0
+		w.lavaElevation[i] = 0
+		if i < len(w.lavaNoise) {
+			w.lavaNoise[i] = int8(w.rng.Intn(3)) - 1
+		}
 		w.burnTTL[i] = 0
 		w.burnNext[i] = 0
 		w.rainCurr[i] = 0
@@ -360,6 +673,10 @@ func (w *World) Reset(seed int64) {
 	w.rainRegions = w.rainRegions[:0]
 	w.volcanoRegions = w.volcanoRegions[:0]
 	w.expiredVolcanoProtos = w.expiredVolcanoProtos[:0]
+	w.lavaVents = w.lavaVents[:0]
+	w.lavaTipQueue = w.lavaTipQueue[:0]
+	w.lavaFailedTips = w.lavaFailedTips[:0]
+	w.lavaAdvancedCells = w.lavaAdvancedCells[:0]
 }
 
 func floatControl(key, label string, step, min, max float64) core.ParameterControl {
@@ -1475,7 +1792,7 @@ func (w *World) applyEruptions() {
 		w.expiredVolcanoProtos = w.expiredVolcanoProtos[:0]
 		return
 	}
-	if len(w.lavaLife) != total {
+	if len(w.lavaHeight) != total || len(w.lavaTemp) != total || len(w.lavaElevation) != total {
 		w.expiredVolcanoProtos = w.expiredVolcanoProtos[:0]
 		return
 	}
@@ -1489,19 +1806,6 @@ func (w *World) applyEruptions() {
 		w.expiredVolcanoProtos = w.expiredVolcanoProtos[:0]
 		return
 	}
-
-	minLife := w.cfg.Params.LavaLifeMin
-	maxLife := w.cfg.Params.LavaLifeMax
-	if minLife <= 0 {
-		minLife = 1
-	}
-	if maxLife < minLife {
-		maxLife = minLife
-	}
-
-	const coreScale = 0.35
-	const rimScale = 0.9
-	const speckChance = 0.08
 
 	for _, region := range w.expiredVolcanoProtos {
 		if region.radius <= 0 {
@@ -1519,7 +1823,7 @@ func (w *World) applyEruptions() {
 			continue
 		}
 
-		w.eruptRegion(region, minLife, maxLife, coreScale, rimScale, speckChance)
+		w.eruptRegion(region)
 	}
 
 	w.expiredVolcanoProtos = w.expiredVolcanoProtos[:0]
@@ -1581,10 +1885,17 @@ func (w *World) volcanoMaskMean(region volcanoProtoRegion) float64 {
 	return sum / float64(count)
 }
 
-func (w *World) eruptRegion(region volcanoProtoRegion, minLife, maxLife int, coreScale, rimScale, speckChance float64) {
+func (w *World) eruptRegion(region volcanoProtoRegion) {
 	if region.radius <= 0 {
 		return
 	}
+
+	w.clearLavaField()
+	w.lavaVents = w.lavaVents[:0]
+	for i := range w.lavaChannel {
+		w.lavaChannel[i] = 0
+	}
+	w.buildLavaElevation(region)
 
 	minX := int(math.Floor(region.cx - region.radius))
 	maxX := int(math.Ceil(region.cx + region.radius))
@@ -1604,11 +1915,13 @@ func (w *World) eruptRegion(region volcanoProtoRegion, minLife, maxLife int, cor
 		maxY = w.h - 1
 	}
 
-	coreRadius := region.radius * coreScale
-	rimRadius := region.radius * rimScale
+	coreRadius := region.radius * 0.35
+	rimRadius := region.radius * 0.9
 	if rimRadius < coreRadius {
 		rimRadius = coreRadius
 	}
+
+	coreCells := w.lavaTipQueue[:0]
 
 	for y := minY; y <= maxY; y++ {
 		cy := float64(y) + 0.5
@@ -1627,7 +1940,9 @@ func (w *World) eruptRegion(region volcanoProtoRegion, minLife, maxLife int, cor
 
 			switch {
 			case dist <= coreRadius:
-				w.placeLava(idx, minLife, maxLife)
+				height := 2 + w.rng.Intn(2)
+				w.setLavaCell(idx, height, 1, -1, false)
+				coreCells = append(coreCells, idx)
 			case dist <= rimRadius:
 				if w.groundCurr[idx] == GroundRock {
 					w.groundCurr[idx] = GroundMountain
@@ -1635,56 +1950,79 @@ func (w *World) eruptRegion(region volcanoProtoRegion, minLife, maxLife int, cor
 						w.display[idx] = uint8(GroundMountain)
 					}
 				}
-				if idx < len(w.lavaLife) {
-					w.lavaLife[idx] = 0
-				}
-			default:
-				if speckChance <= 0 {
-					continue
-				}
-				if w.rng.Float64() >= speckChance {
-					continue
-				}
-				w.placeLava(idx, minLife, maxLife)
 			}
 		}
 	}
-}
 
-func (w *World) placeLava(idx int, minLife, maxLife int) {
-	if idx < 0 || idx >= len(w.groundCurr) {
+	if len(coreCells) == 0 {
+		cx := int(math.Round(region.cx))
+		cy := int(math.Round(region.cy))
+		if cx < 0 {
+			cx = 0
+		}
+		if cy < 0 {
+			cy = 0
+		}
+		if cx >= w.w {
+			cx = w.w - 1
+		}
+		if cy >= w.h {
+			cy = w.h - 1
+		}
+		if cx >= 0 && cy >= 0 {
+			centerIdx := cy*w.w + cx
+			if centerIdx >= 0 && centerIdx < len(w.groundCurr) {
+				coreCells = append(coreCells, centerIdx)
+			}
+		}
+	}
+
+	vents := 1 + w.rng.Intn(3)
+	if vents > len(coreCells) {
+		vents = len(coreCells)
+	}
+	if vents <= 0 {
 		return
 	}
 
-	life := minLife
-	if maxLife > minLife {
-		life += w.rng.Intn(maxLife - minLife + 1)
-	}
-	if life < 1 {
-		life = 1
-	}
-	if life > 255 {
-		life = 255
-	}
+	w.rng.Shuffle(len(coreCells), func(i, j int) {
+		coreCells[i], coreCells[j] = coreCells[j], coreCells[i]
+	})
 
-	w.groundCurr[idx] = GroundLava
-	if idx < len(w.lavaLife) {
-		w.lavaLife[idx] = uint8(life)
-	}
-	if idx < len(w.vegCurr) {
-		w.vegCurr[idx] = VegetationNone
-	}
-	if idx < len(w.vegNext) {
-		w.vegNext[idx] = VegetationNone
-	}
-	if idx < len(w.burnTTL) {
-		w.burnTTL[idx] = 0
-	}
-	if idx < len(w.burnNext) {
-		w.burnNext[idx] = 0
-	}
-	if idx < len(w.display) {
-		w.display[idx] = uint8(GroundLava)
+	w.lavaVents = w.lavaVents[:0]
+	for i := 0; i < vents; i++ {
+		idx := coreCells[i]
+		ttl := lavaVentLifetimeMin
+		if lavaVentLifetimeMax > lavaVentLifetimeMin {
+			ttl += w.rng.Intn(lavaVentLifetimeMax - lavaVentLifetimeMin + 1)
+		}
+		outIdx, dir, downhill := w.pickDownhill(idx)
+		if !downhill {
+			if outIdx < 0 {
+				outIdx = idx
+			}
+		}
+		currentHeight := int(w.lavaHeight[idx])
+		if currentHeight < 2 {
+			currentHeight = 2
+		}
+		w.setLavaCell(idx, currentHeight, 1, dir, false)
+		tip := false
+		if outIdx >= 0 && outIdx < len(w.groundCurr) && outIdx != idx {
+			existing := int(w.lavaHeight[outIdx])
+			if existing < 1 {
+				existing = 1
+			}
+			w.setLavaCell(outIdx, existing, 1, dir, true)
+			tip = true
+		}
+		w.lavaVents = append(w.lavaVents, lavaVent{idx: idx, ttl: ttl, dir: dir, outIdx: outIdx})
+		if tip && outIdx >= 0 && outIdx < len(w.lavaTip) {
+			w.lavaTip[outIdx] = true
+			if outIdx < len(w.lavaTipNext) {
+				w.lavaTipNext[outIdx] = true
+			}
+		}
 	}
 }
 
@@ -1814,198 +2152,559 @@ func (w *World) applyLava() {
 	if len(w.groundCurr) != total || len(w.groundNext) != total {
 		return
 	}
-	if len(w.lavaLife) != total || len(w.lavaNext) != total {
+	if len(w.lavaHeight) != total || len(w.lavaHeightNext) != total {
+		return
+	}
+	if len(w.lavaTemp) != total || len(w.lavaTempNext) != total {
+		return
+	}
+	if len(w.lavaDir) != total || len(w.lavaDirNext) != total {
+		return
+	}
+	if len(w.lavaTip) != total || len(w.lavaTipNext) != total {
+		return
+	}
+	if len(w.lavaForce) != total || len(w.lavaForceNext) != total {
+		return
+	}
+	if len(w.lavaElevation) != total || len(w.lavaChannel) != total {
 		return
 	}
 
+	copy(w.groundNext, w.groundCurr)
+	copy(w.lavaHeightNext, w.lavaHeight)
+	copy(w.lavaTempNext, w.lavaTemp)
+	copy(w.lavaDirNext, w.lavaDir)
 	for i := 0; i < total; i++ {
-		w.groundNext[i] = w.groundCurr[i]
-		w.lavaNext[i] = 0
+		w.lavaForceNext[i] = w.lavaForce[i]
+		w.lavaTipNext[i] = false
 	}
 
-	spreadChance := w.cfg.Params.LavaSpreadChance
-	if spreadChance < 0 {
-		spreadChance = 0
-	}
-	if spreadChance > 1 {
-		spreadChance = 1
-	}
+	w.lavaAdvancedCells = w.lavaAdvancedCells[:0]
+	w.processLavaVents()
 
-	minLife := w.cfg.Params.LavaLifeMin
-	maxLife := w.cfg.Params.LavaLifeMax
-	if minLife <= 0 {
-		minLife = 1
-	}
-	if maxLife < minLife {
-		maxLife = minLife
-	}
-
-	spreadFloor := w.cfg.Params.LavaSpreadMaskFloor
-	if spreadFloor < 0 {
-		spreadFloor = 0
-	}
-	if spreadFloor > 1 {
-		spreadFloor = 1
-	}
-	coolingExtra := w.cfg.Params.LavaCoolingExtra
-	if coolingExtra < 0 {
-		coolingExtra = 0
-	}
-
-	volMaskAt := func(idx int) float64 {
-		if idx < 0 || idx >= len(w.volCurr) {
-			return 0
-		}
-		val := float64(w.volCurr[idx])
-		if val < 0 {
-			return 0
-		}
-		if val > 1 {
-			return 1
-		}
-		return val
-	}
-
-	rainAt := func(idx int) float64 {
-		if idx < 0 || idx >= len(w.rainCurr) {
-			return 0
-		}
-		val := float64(w.rainCurr[idx])
-		if val < 0 {
-			return 0
-		}
-		if val > 1 {
-			return 1
-		}
-		return val
-	}
-
-	const rainCoolingScale = 8.0
-
-	for y := 0; y < w.h; y++ {
-		for x := 0; x < w.w; x++ {
-			idx := y*w.w + x
-			if w.groundCurr[idx] != GroundLava {
-				continue
-			}
-
-			volMaskHere := volMaskAt(idx)
-			rainHere := rainAt(idx)
-			cooling := 1
-			if coolingExtra > 0 {
-				coolingDelta := int(math.Round((1 - volMaskHere) * coolingExtra))
-				if coolingDelta > 0 {
-					cooling += coolingDelta
-				}
-			}
-			if rainHere > 0 {
-				rainCooling := int(math.Round(rainHere * rainCoolingScale))
-				if rainCooling > 0 {
-					cooling += rainCooling
-				}
-			}
-			if cooling < 1 {
-				cooling = 1
-			}
-
-			life := int(w.lavaLife[idx]) - cooling
-			if life > 0 {
-				if life > 255 {
-					life = 255
-				}
-				w.groundNext[idx] = GroundLava
-				w.lavaNext[idx] = uint8(life)
-				if idx < len(w.display) {
-					w.display[idx] = uint8(GroundLava)
-				}
-			} else {
-				w.groundNext[idx] = GroundRock
-				w.lavaNext[idx] = 0
-				if idx < len(w.display) {
-					w.display[idx] = uint8(GroundRock)
-				}
-			}
-
-			if spreadChance <= 0 {
-				continue
-			}
-
-			for dy := -1; dy <= 1; dy++ {
-				ny := y + dy
-				if ny < 0 || ny >= w.h {
-					continue
-				}
-				for dx := -1; dx <= 1; dx++ {
-					nx := x + dx
-					if nx < 0 || nx >= w.w {
-						continue
-					}
-					if dx == 0 && dy == 0 {
-						continue
-					}
-					nIdx := ny*w.w + nx
-					if w.groundCurr[nIdx] == GroundLava {
-						continue
-					}
-					ground := w.groundCurr[nIdx]
-					if ground != GroundDirt && ground != GroundRock {
-						continue
-					}
-					heat := volMaskHere
-					if targetMask := volMaskAt(nIdx); targetMask > heat {
-						heat = targetMask
-					}
-					if heat < spreadFloor {
-						heat = spreadFloor
-					} else if heat > 1 {
-						heat = 1
-					}
-					effectiveSpread := spreadChance * heat
-					if effectiveSpread > 1 {
-						effectiveSpread = 1
-					}
-					if w.rng.Float64() >= effectiveSpread {
-						continue
-					}
-
-					lifeVal := minLife
-					if maxLife > minLife {
-						lifeVal += w.rng.Intn(maxLife - minLife + 1)
-					}
-					if lifeVal < 1 {
-						lifeVal = 1
-					}
-					if lifeVal > 255 {
-						lifeVal = 255
-					}
-					if existing := int(w.lavaNext[nIdx]); existing > lifeVal {
-						lifeVal = existing
-					}
-
-					w.groundNext[nIdx] = GroundLava
-					w.lavaNext[nIdx] = uint8(lifeVal)
-					if nIdx < len(w.display) {
-						w.display[nIdx] = uint8(GroundLava)
-					}
-					if nIdx < len(w.vegCurr) {
-						w.vegCurr[nIdx] = VegetationNone
-					}
-					if nIdx < len(w.vegNext) {
-						w.vegNext[nIdx] = VegetationNone
-					}
-					if nIdx < len(w.burnTTL) {
-						w.burnTTL[nIdx] = 0
-					}
-					if nIdx < len(w.burnNext) {
-						w.burnNext[nIdx] = 0
-					}
-				}
-			}
+	w.lavaTipQueue = w.lavaTipQueue[:0]
+	for idx := 0; idx < total; idx++ {
+		if w.lavaTip[idx] && w.groundCurr[idx] == GroundLava {
+			w.lavaTipQueue = append(w.lavaTipQueue, idx)
 		}
 	}
+	if len(w.lavaTipQueue) > 1 {
+		w.rng.Shuffle(len(w.lavaTipQueue), func(i, j int) {
+			w.lavaTipQueue[i], w.lavaTipQueue[j] = w.lavaTipQueue[j], w.lavaTipQueue[i]
+		})
+	}
+
+	w.lavaFailedTips = w.lavaFailedTips[:0]
+	for _, idx := range w.lavaTipQueue {
+		if !w.advanceLavaTip(idx) {
+			w.lavaFailedTips = append(w.lavaFailedTips, idx)
+		}
+	}
+
+	w.poolFailedTips()
+	w.coolLavaCells()
+	w.reinforceLavaChannels()
+	w.detectLavaTips()
 
 	w.groundCurr, w.groundNext = w.groundNext, w.groundCurr
-	w.lavaLife, w.lavaNext = w.lavaNext, w.lavaLife
+	w.lavaHeight, w.lavaHeightNext = w.lavaHeightNext, w.lavaHeight
+	w.lavaTemp, w.lavaTempNext = w.lavaTempNext, w.lavaTemp
+	w.lavaDir, w.lavaDirNext = w.lavaDirNext, w.lavaDir
+	w.lavaTip, w.lavaTipNext = w.lavaTipNext, w.lavaTip
+	w.lavaForce, w.lavaForceNext = w.lavaForceNext, w.lavaForce
+}
+
+func (w *World) processLavaVents() {
+	if len(w.lavaVents) == 0 {
+		return
+	}
+	active := w.lavaVents[:0]
+	for _, vent := range w.lavaVents {
+		if vent.ttl <= 0 {
+			continue
+		}
+		idx := vent.idx
+		if idx < 0 || idx >= len(w.groundNext) {
+			continue
+		}
+		height := int(w.lavaHeightNext[idx]) + lavaFluxPerTick
+		if height > lavaMaxHeight {
+			height = lavaMaxHeight
+		}
+		w.lavaHeightNext[idx] = uint8(height)
+		w.lavaTempNext[idx] = 1
+		w.lavaDirNext[idx] = vent.dir
+		w.lavaForceNext[idx] = height >= lavaOverflowHeight
+		w.groundNext[idx] = GroundLava
+		if idx < len(w.vegCurr) {
+			w.vegCurr[idx] = VegetationNone
+		}
+		if idx < len(w.vegNext) {
+			w.vegNext[idx] = VegetationNone
+		}
+		if idx < len(w.burnTTL) {
+			w.burnTTL[idx] = 0
+		}
+		if idx < len(w.burnNext) {
+			w.burnNext[idx] = 0
+		}
+
+		outIdx := vent.outIdx
+		if outIdx >= 0 && outIdx < len(w.groundNext) {
+			if w.groundNext[outIdx] != GroundLava {
+				w.groundNext[outIdx] = GroundLava
+			}
+			if w.lavaHeightNext[outIdx] < 1 {
+				w.lavaHeightNext[outIdx] = 1
+			}
+			w.lavaTempNext[outIdx] = 1
+			w.lavaDirNext[outIdx] = vent.dir
+			w.lavaForceNext[outIdx] = int(w.lavaHeightNext[outIdx]) >= lavaOverflowHeight
+			w.lavaTipNext[outIdx] = true
+			w.lavaAdvancedCells = append(w.lavaAdvancedCells, outIdx)
+			if outIdx < len(w.vegCurr) {
+				w.vegCurr[outIdx] = VegetationNone
+			}
+			if outIdx < len(w.vegNext) {
+				w.vegNext[outIdx] = VegetationNone
+			}
+			if outIdx < len(w.burnTTL) {
+				w.burnTTL[outIdx] = 0
+			}
+			if outIdx < len(w.burnNext) {
+				w.burnNext[outIdx] = 0
+			}
+		}
+
+		vent.ttl--
+		if vent.ttl > 0 {
+			active = append(active, vent)
+		}
+	}
+	w.lavaVents = active
+}
+
+func (w *World) spawnLavaChild(cand lavaCandidate, temp float32) bool {
+	nIdx := cand.idx
+	if nIdx < 0 || nIdx >= len(w.groundNext) {
+		return false
+	}
+	if w.groundCurr[nIdx] == GroundLava || w.groundNext[nIdx] == GroundLava {
+		return false
+	}
+	ground := w.groundCurr[nIdx]
+	if ground != GroundDirt && ground != GroundRock {
+		return false
+	}
+	if temp < 0 {
+		temp = 0
+	}
+	if temp > 1 {
+		temp = 1
+	}
+	w.groundNext[nIdx] = GroundLava
+	w.lavaHeightNext[nIdx] = 1
+	w.lavaTempNext[nIdx] = temp
+	w.lavaDirNext[nIdx] = cand.dir
+	w.lavaForceNext[nIdx] = false
+	w.lavaTipNext[nIdx] = true
+	if nIdx < len(w.vegCurr) {
+		w.vegCurr[nIdx] = VegetationNone
+	}
+	if nIdx < len(w.vegNext) {
+		w.vegNext[nIdx] = VegetationNone
+	}
+	if nIdx < len(w.burnTTL) {
+		w.burnTTL[nIdx] = 0
+	}
+	if nIdx < len(w.burnNext) {
+		w.burnNext[nIdx] = 0
+	}
+	w.lavaAdvancedCells = append(w.lavaAdvancedCells, nIdx)
+	return true
+}
+
+func (w *World) advanceLavaTip(idx int) bool {
+	if idx < 0 || idx >= len(w.groundCurr) {
+		return false
+	}
+	if w.groundCurr[idx] != GroundLava {
+		return false
+	}
+	dir := w.lavaDir[idx]
+	if dir < 0 {
+		return false
+	}
+	height := int(w.lavaHeight[idx])
+	if height <= 0 {
+		return false
+	}
+	temp := w.lavaTemp[idx]
+	forceAdvance := w.lavaForce[idx]
+	chance := lavaBaseSpeed * float64(temp) / (1 + lavaSpeedAlpha*float64(height))
+	if forceAdvance {
+		chance = 1
+	}
+	if chance <= 0 {
+		return false
+	}
+	if chance > 1 {
+		chance = 1
+	}
+	if !forceAdvance && w.rng.Float64() >= chance {
+		return false
+	}
+
+	x := idx % w.w
+	y := idx / w.w
+	elevHere := w.lavaElevation[idx]
+
+	var candidates [8]lavaCandidate
+	count := 0
+	addCandidate := func(nIdx int, dirIdx int8) {
+		if dirIdx < 0 || nIdx < 0 || nIdx >= len(w.groundNext) {
+			return
+		}
+		if w.groundCurr[nIdx] == GroundLava || w.groundNext[nIdx] == GroundLava {
+			return
+		}
+		ground := w.groundCurr[nIdx]
+		if ground != GroundDirt && ground != GroundRock {
+			return
+		}
+		for i := 0; i < count; i++ {
+			if candidates[i].idx == nIdx {
+				return
+			}
+		}
+		slope := 0.0
+		if nIdx < len(w.lavaElevation) {
+			diff := int(elevHere) - int(w.lavaElevation[nIdx])
+			if diff > 0 {
+				slope = float64(diff)
+			}
+		}
+		align := lavaDot(dirIdx, dir)
+		if forceAdvance {
+			align = 0
+		}
+		channel := 0.0
+		if nIdx < len(w.lavaChannel) {
+			channel = float64(w.lavaChannel[nIdx])
+		}
+		rain := 0.0
+		if nIdx < len(w.rainCurr) {
+			rain = float64(w.rainCurr[nIdx])
+		}
+		wall := 0.0
+		if nIdx < len(w.lavaElevation) {
+			diff := int(w.lavaElevation[nIdx]) - int(elevHere)
+			if diff > 0 {
+				wall = float64(diff)
+			}
+		}
+		score := lavaSlopeWeight*slope + lavaAlignWeight*align + lavaChannelWeight*channel - lavaRainWeight*rain - lavaWallWeight*wall
+		candidates[count] = lavaCandidate{idx: nIdx, dir: dirIdx, score: score}
+		count++
+	}
+
+	forward := lavaDirections[dir]
+	nx := x + forward.dx
+	ny := y + forward.dy
+	if nx >= 0 && nx < w.w && ny >= 0 && ny < w.h {
+		addCandidate(ny*w.w+nx, dir)
+	}
+	leftDir := lavaLeft(dir)
+	if leftDir >= 0 {
+		dv := lavaDirections[leftDir]
+		nx := x + dv.dx
+		ny := y + dv.dy
+		if nx >= 0 && nx < w.w && ny >= 0 && ny < w.h {
+			addCandidate(ny*w.w+nx, leftDir)
+		}
+	}
+	rightDir := lavaRight(dir)
+	if rightDir >= 0 {
+		dv := lavaDirections[rightDir]
+		nx := x + dv.dx
+		ny := y + dv.dy
+		if nx >= 0 && nx < w.w && ny >= 0 && ny < w.h {
+			addCandidate(ny*w.w+nx, rightDir)
+		}
+	}
+
+	for dirIdx, dv := range lavaDirections {
+		nx := x + dv.dx
+		ny := y + dv.dy
+		if nx < 0 || nx >= w.w || ny < 0 || ny >= w.h {
+			continue
+		}
+		nIdx := ny*w.w + nx
+		if nIdx < 0 || nIdx >= len(w.lavaElevation) {
+			continue
+		}
+		if w.lavaElevation[nIdx] < elevHere {
+			addCandidate(nIdx, int8(dirIdx))
+		}
+	}
+
+	if count == 0 {
+		return false
+	}
+
+	best := -1
+	second := -1
+	for i := 0; i < count; i++ {
+		if best < 0 || candidates[i].score > candidates[best].score {
+			if best >= 0 {
+				second = best
+			}
+			best = i
+		} else if (second < 0 || candidates[i].score > candidates[second].score) && candidates[i].idx != candidates[best].idx {
+			second = i
+		}
+	}
+	if best < 0 {
+		return false
+	}
+	if candidates[best].score < lavaFlowThreshold {
+		if !(forceAdvance && candidates[best].score >= 0) {
+			return false
+		}
+	}
+
+	childTemp := temp - 0.05
+	if childTemp < 0 {
+		childTemp = 0
+	}
+
+	advanced := w.spawnLavaChild(candidates[best], childTemp)
+	if !advanced {
+		return false
+	}
+
+	newHeight := height - 1
+	if newHeight < 1 {
+		newHeight = 1
+	}
+	w.lavaHeightNext[idx] = uint8(newHeight)
+	w.lavaForceNext[idx] = newHeight >= lavaOverflowHeight
+
+	threshold := lavaFlowThreshold - lavaSplitThresholdDrop
+	if threshold < 0 {
+		threshold = 0
+	}
+	if height >= lavaSplitMinHeight && w.rng.Float64() < lavaSplitChance && second >= 0 && candidates[second].idx != candidates[best].idx && candidates[second].score >= threshold {
+		_ = w.spawnLavaChild(candidates[second], childTemp)
+	}
+
+	return true
+}
+
+func (w *World) poolFailedTips() {
+	if len(w.lavaFailedTips) == 0 {
+		return
+	}
+	for _, idx := range w.lavaFailedTips {
+		if idx < 0 || idx >= len(w.groundCurr) {
+			continue
+		}
+		if w.groundCurr[idx] != GroundLava {
+			continue
+		}
+		x := idx % w.w
+		y := idx / w.w
+		elevHere := w.lavaElevation[idx]
+		var options [8]int
+		optionCount := 0
+		for _, dv := range lavaDirections {
+			nx := x + dv.dx
+			ny := y + dv.dy
+			if nx < 0 || nx >= w.w || ny < 0 || ny >= w.h {
+				continue
+			}
+			nIdx := ny*w.w + nx
+			if w.groundCurr[nIdx] == GroundLava || w.groundNext[nIdx] == GroundLava {
+				continue
+			}
+			ground := w.groundCurr[nIdx]
+			if ground != GroundDirt && ground != GroundRock {
+				continue
+			}
+			if nIdx < len(w.lavaElevation) && w.lavaElevation[nIdx] > elevHere {
+				continue
+			}
+			options[optionCount] = nIdx
+			optionCount++
+		}
+		if optionCount > 0 {
+			target := options[w.rng.Intn(optionCount)]
+			temp := w.lavaTemp[idx] - 0.1
+			if temp < 0 {
+				temp = 0
+			}
+			w.groundNext[target] = GroundLava
+			w.lavaHeightNext[target] = 1
+			w.lavaTempNext[target] = temp
+			w.lavaDirNext[target] = -1
+			w.lavaForceNext[target] = false
+			w.lavaTipNext[target] = false
+			if target < len(w.vegCurr) {
+				w.vegCurr[target] = VegetationNone
+			}
+			if target < len(w.vegNext) {
+				w.vegNext[target] = VegetationNone
+			}
+			if target < len(w.burnTTL) {
+				w.burnTTL[target] = 0
+			}
+			if target < len(w.burnNext) {
+				w.burnNext[target] = 0
+			}
+		}
+
+		newHeight := int(w.lavaHeight[idx]) + 1
+		if newHeight > lavaMaxHeight {
+			newHeight = lavaMaxHeight
+		}
+		w.lavaHeightNext[idx] = uint8(newHeight)
+		w.lavaForceNext[idx] = newHeight >= lavaOverflowHeight
+	}
+}
+
+func (w *World) coolLavaCells() {
+	total := w.w * w.h
+	for idx := 0; idx < total; idx++ {
+		if w.groundNext[idx] != GroundLava {
+			w.lavaHeightNext[idx] = 0
+			w.lavaTempNext[idx] = 0
+			w.lavaDirNext[idx] = -1
+			w.lavaForceNext[idx] = false
+			w.lavaTipNext[idx] = false
+			continue
+		}
+
+		height := int(w.lavaHeightNext[idx])
+		if height <= 0 {
+			height = 1
+			w.lavaHeightNext[idx] = 1
+		}
+
+		x := idx % w.w
+		y := idx / w.w
+		neighbors := 0
+		for _, dv := range lavaDirections {
+			nx := x + dv.dx
+			ny := y + dv.dy
+			if nx < 0 || nx >= w.w || ny < 0 || ny >= w.h {
+				continue
+			}
+			nIdx := ny*w.w + nx
+			if w.groundNext[nIdx] == GroundLava {
+				neighbors++
+			}
+		}
+
+		edgeFactor := 1 - float64(neighbors)/float64(len(lavaDirections))
+		if edgeFactor < 0 {
+			edgeFactor = 0
+		}
+		rain := 0.0
+		if idx < len(w.rainCurr) {
+			rain = float64(w.rainCurr[idx])
+		}
+		cool := lavaCoolBase + lavaCoolEdge*edgeFactor + lavaCoolRain*rain + lavaCoolThick*lavaSigmoid(float64(height-2))
+		if w.lavaDirNext[idx] < 0 {
+			cool += lavaCoolPoolBonus
+		}
+		temp := float64(w.lavaTempNext[idx]) - cool
+		if temp < 0 {
+			temp = 0
+		}
+		w.lavaTempNext[idx] = float32(temp)
+
+		if temp <= lavaCrustThreshold {
+			if height > 1 {
+				height--
+				if height < 1 {
+					height = 1
+				}
+				w.lavaHeightNext[idx] = uint8(height)
+				if temp > lavaReheatCap {
+					temp = lavaReheatCap
+				}
+				w.lavaTempNext[idx] = float32(temp)
+			} else {
+				w.groundNext[idx] = GroundRock
+				w.lavaHeightNext[idx] = 0
+				w.lavaTempNext[idx] = 0
+				w.lavaDirNext[idx] = -1
+				w.lavaForceNext[idx] = false
+				w.lavaTipNext[idx] = false
+				continue
+			}
+		}
+
+		w.lavaForceNext[idx] = height >= lavaOverflowHeight
+	}
+}
+
+func (w *World) reinforceLavaChannels() {
+	for _, idx := range w.lavaAdvancedCells {
+		if idx < 0 || idx >= len(w.lavaChannel) {
+			continue
+		}
+		value := w.lavaChannel[idx] + float32(lavaChannelGrow)
+		if value > 1 {
+			value = 1
+		}
+		w.lavaChannel[idx] = value
+	}
+
+	decay := float32(1 - lavaChannelDecay)
+	for i := range w.lavaChannel {
+		w.lavaChannel[i] *= decay
+		if w.lavaChannel[i] < 0 {
+			w.lavaChannel[i] = 0
+		}
+	}
+}
+
+func (w *World) detectLavaTips() {
+	total := w.w * w.h
+	for idx := 0; idx < total; idx++ {
+		if w.groundNext[idx] != GroundLava {
+			w.lavaTipNext[idx] = false
+			w.lavaForceNext[idx] = false
+			continue
+		}
+		w.lavaForceNext[idx] = w.lavaHeightNext[idx] >= lavaOverflowHeight
+		dir := w.lavaDirNext[idx]
+		if dir < 0 {
+			w.lavaTipNext[idx] = false
+			continue
+		}
+		if w.lavaTempNext[idx] <= float32(lavaTipTemperatureMin) {
+			w.lavaTipNext[idx] = false
+			continue
+		}
+		x := idx % w.w
+		y := idx / w.w
+		neighbors := 0
+		for _, dv := range lavaDirections {
+			nx := x + dv.dx
+			ny := y + dv.dy
+			if nx < 0 || nx >= w.w || ny < 0 || ny >= w.h {
+				continue
+			}
+			nIdx := ny*w.w + nx
+			if w.groundNext[nIdx] == GroundLava {
+				neighbors++
+			}
+		}
+		w.lavaTipNext[idx] = neighbors <= 2
+	}
 }
 
 func (w *World) applyFire() {
@@ -2169,7 +2868,7 @@ func (w *World) applyFire() {
 				if w.groundCurr[idx] != GroundLava {
 					continue
 				}
-				if idx < len(w.lavaLife) && w.lavaLife[idx] == 0 {
+				if idx < len(w.lavaHeight) && w.lavaHeight[idx] == 0 {
 					continue
 				}
 
