@@ -50,6 +50,8 @@ type World struct {
 	lavaChannel    []float32
 	lavaElevation  []int16
 	lavaNoise      []int8
+	lavaVentOrder  []int
+	lavaVentPumps  []int
 	burnTTL        []uint8
 	burnNext       []uint8
 	rainCurr       []float32
@@ -74,6 +76,9 @@ type World struct {
 	lavaTipQueue      []int
 	lavaFailedTips    []int
 	lavaAdvancedCells []int
+
+	lavaReservoirUnits  int
+	lavaReservoirCursor int
 }
 
 // VegetationMetrics captures aggregate vegetation telemetry for the current tick.
@@ -174,8 +179,9 @@ const (
 	lavaCoolBase           = 0.02
 	lavaCoolEdge           = 0.03
 	lavaCoolRain           = 0.08
-	lavaCoolThick          = 0.02
-	lavaCoolPoolBonus      = 0.02
+	lavaCoolThickRelief    = 0.02
+	lavaCoolPoolRelief     = 0.01
+	lavaCoolFlowBonus      = 0.012
 	lavaCrustThreshold     = 0.15
 	lavaTipTemperatureMin  = 0.12
 	lavaReheatCap          = 0.35
@@ -377,6 +383,10 @@ func (w *World) clearLavaField() {
 			w.display[idx] = uint8(w.groundCurr[idx])
 		}
 	}
+	w.lavaReservoirUnits = 0
+	w.lavaReservoirCursor = 0
+	w.lavaVentOrder = w.lavaVentOrder[:0]
+	w.lavaVentPumps = w.lavaVentPumps[:0]
 }
 
 func (w *World) pickDownhill(idx int) (int, int8, bool) {
@@ -545,6 +555,22 @@ func (w *World) ParameterControls() []core.ParameterControl {
 			HasMin: true,
 		},
 		{
+			Key:    "lava_reservoir_min",
+			Label:  "Reservoir size min",
+			Type:   core.ParamTypeInt,
+			Step:   1,
+			Min:    0,
+			HasMin: true,
+		},
+		{
+			Key:    "lava_reservoir_max",
+			Label:  "Reservoir size max",
+			Type:   core.ParamTypeInt,
+			Step:   1,
+			Min:    0,
+			HasMin: true,
+		},
+		{
 			Key:    "burn_ttl",
 			Label:  "Burn duration",
 			Type:   core.ParamTypeInt,
@@ -580,6 +606,24 @@ func (w *World) SetIntParameter(key string, value int) bool {
 		}
 		w.cfg.Params.LavaLifeMax = value
 		w.clampVentLifetimes()
+		return true
+	case "lava_reservoir_min":
+		if value < 0 {
+			value = 0
+		}
+		if value > w.cfg.Params.LavaReservoirMax {
+			w.cfg.Params.LavaReservoirMax = value
+		}
+		w.cfg.Params.LavaReservoirMin = value
+		return true
+	case "lava_reservoir_max":
+		if value < w.cfg.Params.LavaReservoirMin {
+			value = w.cfg.Params.LavaReservoirMin
+		}
+		if value < 0 {
+			value = 0
+		}
+		w.cfg.Params.LavaReservoirMax = value
 		return true
 	case "burn_ttl":
 		if value < 1 {
@@ -820,9 +864,13 @@ func (w *World) Reset(seed int64) {
 	w.volcanoRegions = w.volcanoRegions[:0]
 	w.expiredVolcanoProtos = w.expiredVolcanoProtos[:0]
 	w.lavaVents = w.lavaVents[:0]
+	w.lavaReservoirUnits = 0
+	w.lavaReservoirCursor = 0
 	w.lavaTipQueue = w.lavaTipQueue[:0]
 	w.lavaFailedTips = w.lavaFailedTips[:0]
 	w.lavaAdvancedCells = w.lavaAdvancedCells[:0]
+	w.lavaVentOrder = w.lavaVentOrder[:0]
+	w.lavaVentPumps = w.lavaVentPumps[:0]
 }
 
 func clampFloat(value, min, max float64) float64 {
@@ -2250,6 +2298,22 @@ func (w *World) eruptRegion(region volcanoProtoRegion) {
 			}
 		}
 	}
+
+	reservoirMin := w.cfg.Params.LavaReservoirMin
+	if reservoirMin < 0 {
+		reservoirMin = 0
+	}
+	reservoirMax := w.cfg.Params.LavaReservoirMax
+	if reservoirMax < reservoirMin {
+		reservoirMax = reservoirMin
+	}
+	draw := reservoirMin
+	if reservoirMax > reservoirMin {
+		draw += w.rng.Intn(reservoirMax - reservoirMin + 1)
+	}
+	w.lavaReservoirUnits = draw * len(w.lavaVents)
+	w.lavaReservoirCursor = 0
+	w.lavaVentOrder = w.lavaVentOrder[:0]
 }
 
 func (w *World) spawnVolcanoProtoRegion() {
@@ -2445,8 +2509,54 @@ func (w *World) processLavaVents() {
 	if len(w.lavaVents) == 0 {
 		return
 	}
+	w.lavaVentOrder = w.lavaVentOrder[:0]
+	for i, vent := range w.lavaVents {
+		if vent.ttl > 0 {
+			w.lavaVentOrder = append(w.lavaVentOrder, i)
+		}
+	}
+	if len(w.lavaVentOrder) == 0 {
+		w.lavaVents = w.lavaVents[:0]
+		return
+	}
+
+	if len(w.lavaVentPumps) < len(w.lavaVents) {
+		w.lavaVentPumps = make([]int, len(w.lavaVents))
+	} else {
+		w.lavaVentPumps = w.lavaVentPumps[:len(w.lavaVents)]
+	}
+	for i := range w.lavaVentPumps {
+		w.lavaVentPumps[i] = 0
+	}
+
+	available := w.lavaReservoirUnits
+	if available < 0 {
+		available = 0
+	}
+	if available > 0 {
+		count := len(w.lavaVentOrder)
+		start := 0
+		if count > 0 {
+			start = w.lavaReservoirCursor % count
+		}
+		for offset := 0; offset < count && available > 0; offset++ {
+			ventIdx := w.lavaVentOrder[(start+offset)%count]
+			draw := lavaFluxPerTick
+			if draw > available {
+				draw = available
+			}
+			w.lavaVentPumps[ventIdx] += draw
+			available -= draw
+		}
+		w.lavaReservoirUnits = available
+		if count > 0 {
+			w.lavaReservoirCursor = (w.lavaReservoirCursor + 1) % count
+		}
+	}
+
+	reservoirEmpty := w.lavaReservoirUnits <= 0
 	active := w.lavaVents[:0]
-	for _, vent := range w.lavaVents {
+	for i, vent := range w.lavaVents {
 		if vent.ttl <= 0 {
 			continue
 		}
@@ -2454,9 +2564,18 @@ func (w *World) processLavaVents() {
 		if idx < 0 || idx >= len(w.groundNext) {
 			continue
 		}
-		height := int(w.lavaHeightNext[idx]) + lavaFluxPerTick
-		if height > lavaMaxHeight {
-			height = lavaMaxHeight
+
+		height := int(w.lavaHeightNext[idx])
+		if height < 1 {
+			height = 1
+		}
+		pump := w.lavaVentPumps[i]
+		if pump > 0 {
+			height += pump
+			if height > lavaMaxHeight {
+				height = lavaMaxHeight
+			}
+			w.lavaAdvancedCells = append(w.lavaAdvancedCells, idx)
 		}
 		w.lavaHeightNext[idx] = uint8(height)
 		w.lavaTempNext[idx] = 1
@@ -2487,8 +2606,10 @@ func (w *World) processLavaVents() {
 			w.lavaTempNext[outIdx] = 1
 			w.lavaDirNext[outIdx] = vent.dir
 			w.lavaForceNext[outIdx] = int(w.lavaHeightNext[outIdx]) >= lavaOverflowHeight
-			w.lavaTipNext[outIdx] = true
-			w.lavaAdvancedCells = append(w.lavaAdvancedCells, outIdx)
+			w.lavaTipNext[outIdx] = pump > 0
+			if pump > 0 {
+				w.lavaAdvancedCells = append(w.lavaAdvancedCells, outIdx)
+			}
 			if outIdx < len(w.vegCurr) {
 				w.vegCurr[outIdx] = VegetationNone
 			}
@@ -2504,6 +2625,9 @@ func (w *World) processLavaVents() {
 		}
 
 		vent.ttl--
+		if reservoirEmpty && pump == 0 {
+			vent.ttl = 0
+		}
 		if vent.ttl > 0 {
 			active = append(active, vent)
 		}
@@ -2840,9 +2964,18 @@ func (w *World) coolLavaCells() {
 		if idx < len(w.rainCurr) {
 			rain = float64(w.rainCurr[idx])
 		}
-		cool := lavaCoolBase + lavaCoolEdge*edgeFactor + lavaCoolRain*rain + lavaCoolThick*lavaSigmoid(float64(height-2))
-		if w.lavaDirNext[idx] < 0 {
-			cool += lavaCoolPoolBonus
+		thicknessRelief := lavaCoolThickRelief * lavaSigmoid(float64(height-2))
+		cool := lavaCoolBase + lavaCoolEdge*edgeFactor + lavaCoolRain*rain - thicknessRelief
+		if cool < 0 {
+			cool = 0
+		}
+		if w.lavaDirNext[idx] >= 0 {
+			cool += lavaCoolFlowBonus
+		} else {
+			cool -= lavaCoolPoolRelief
+			if cool < 0 {
+				cool = 0
+			}
 		}
 		temp := float64(w.lavaTempNext[idx]) - cool
 		if temp < 0 {

@@ -138,7 +138,7 @@ func TestLavaCoolingCrustsAndSolidifies(t *testing.T) {
 	world.lavaTip[0] = false
 	world.lavaElevation[0] = 3
 
-	for i := 0; i < 40; i++ {
+	for i := 0; i < 80; i++ {
 		world.applyLava()
 	}
 
@@ -150,6 +150,53 @@ func TestLavaCoolingCrustsAndSolidifies(t *testing.T) {
 	}
 	if world.lavaTemp[0] != 0 {
 		t.Fatalf("expected lava temp to reset, got %.3f", world.lavaTemp[0])
+	}
+}
+
+func TestLavaReservoirExhaustionStopsVents(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Width = 9
+	cfg.Height = 9
+	cfg.Params.GrassPatchCount = 0
+	cfg.Params.VolcanoProtoSpawnChance = 0
+	cfg.Params.LavaReservoirMin = 1
+	cfg.Params.LavaReservoirMax = 1
+
+	world := NewWithConfig(cfg)
+	world.Reset(0)
+
+	for i := range world.groundCurr {
+		world.groundCurr[i] = GroundRock
+		world.display[i] = uint8(GroundRock)
+	}
+
+	region := volcanoProtoRegion{
+		cx:       4.5,
+		cy:       4.5,
+		radius:   3,
+		strength: 1,
+		ttl:      0,
+	}
+
+	world.eruptRegion(region)
+
+	if len(world.lavaVents) == 0 {
+		t.Fatal("expected eruption to create active vents")
+	}
+
+	expectedReservoir := len(world.lavaVents)
+	if world.lavaReservoirUnits != expectedReservoir {
+		t.Fatalf("expected reservoir sized to vent count, want %d got %d", expectedReservoir, world.lavaReservoirUnits)
+	}
+
+	world.applyLava()
+	if world.lavaReservoirUnits != 0 {
+		t.Fatalf("expected reservoir to empty after first pump, got %d", world.lavaReservoirUnits)
+	}
+
+	world.applyLava()
+	if len(world.lavaVents) != 0 {
+		t.Fatalf("expected vents to close after reservoir exhaustion, still have %d", len(world.lavaVents))
 	}
 }
 

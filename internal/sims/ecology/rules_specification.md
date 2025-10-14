@@ -89,7 +89,7 @@ Base strength rolls between `max(0.5, RainStrengthMin)` and `RainStrengthMax` (d
 
 ### 4.4 Coupling into simulation
 
-* Lava cooling subtracts `ΔT = 0.02 + 0.03·edge + 0.08·rain + 0.02·thicknessSigmoid` (+0.02 if the cell is pooling).【F:internal/sims/ecology/ecology.go†L2772-L2811】
+* Lava cooling subtracts `ΔT = max(0, 0.02 + 0.03·edge + 0.08·rain − 0.02·thicknessSigmoid)` and then adds +0.012 for directional flow or subtracts 0.01 for pooled lava, clamping the result ≥0.【F:internal/sims/ecology/ecology.go†L2764-L2811】
 * Lava flow scoring penalizes rain via `score -= 0.5 × rain` before comparing against the flow threshold (0.9).【F:internal/sims/ecology/ecology.go†L2606-L2643】
 * Fire spread and lava ignition chances are multiplied by `1 − FireRainSpreadDampen × rain` (clamped to [0,1]); default dampen is 0.75.【F:internal/sims/ecology/ecology.go†L2897-L2978】【F:internal/sims/ecology/config.go†L80-L98】
 * Burning tiles extinguish with probability `FireRainExtinguishChance × rain` each tick (default 0.5).【F:internal/sims/ecology/ecology.go†L2930-L2957】
@@ -114,13 +114,13 @@ Base strength rolls between `max(0.5, RainStrengthMin)` and `RainStrengthMax` (d
 * Eruptions clear existing lava, rebuild elevation, and seed:
   * **Core** (`r < 0.35R`): lava cells with height 2–3, temperature 1.0, and queued as tips.
   * **Rim** (`0.35R–0.9R`): `Rock` becomes `Mountain`.
-  * **Vents**: 1–3 vents pick random core cells, run 20–40 ticks, inject 1 unit of lava per tick, and set initial outflow headings along downslope neighbors.【F:internal/sims/ecology/ecology.go†L2008-L2254】
+* **Vents**: 1–3 vents pick random core cells, run 20–40 ticks, draw from a shared reservoir sized between `LavaReservoirMin`–`Max` per vent, and set initial outflow headings along downslope neighbors.【F:internal/sims/ecology/ecology.go†L2008-L2254】
 
 ---
 
 ## 6. Lava Dynamics
 
-* **Injection:** Each vent increases its tile’s lava height (capped at 7) and temperature to 1.0. Neighboring outflow cells inherit at least height 1, become lava, and are marked as tips. Vegetation and burning data on affected cells are cleared immediately.【F:internal/sims/ecology/ecology.go†L2336-L2408】
+* **Injection:** Each vent increases its tile’s lava height (capped at 7) by consuming reservoir units and reheats itself and its outflow cell to temperature 1.0. When the reservoir empties the vents close immediately. Vegetation and burning data on affected cells are cleared.【F:internal/sims/ecology/ecology.go†L2336-L2408】
 * **Tip advancement:** Tips attempt to move forward each tick. The movement chance is `lavaBaseSpeed × temp / (1 + lavaSpeedAlpha × height)` unless forced by overflow. Candidate destinations score `1.0·slope + 0.6·alignment + 0.8·channel − 0.5·rain − 2.0·uphill`. Moves proceed when the best score ≥0.9 (or ≥0 when forced). If the source column is tall enough (height ≥3) and a second candidate scores within 0.75, a split may spawn an extra branch (25 % chance).【F:internal/sims/ecology/ecology.go†L2568-L2709】
 * **Pooling & overflow:** Failed tips thicken the trunk (up to height 7). They may fill adjacent low cells with stationary pools (`dir = -1`), which cool faster and can overflow later.【F:internal/sims/ecology/ecology.go†L2711-L2759】
 * **Cooling & crusting:** Temperature falls by the formula in §4.4. When `temp ≤ 0.15`, thick flows shed one unit of height; once height reaches 1, cooled lava solidifies to `Rock`. Heat is clamped to ≤0.35 when crusting so flows can restart gently if reheated.【F:internal/sims/ecology/ecology.go†L2772-L2823】
@@ -156,7 +156,7 @@ Burning tiles skip succession until extinguished. Metrics update after writing `
 `DefaultConfig()` creates a 256×256 world with deterministic seed 1337 and the parameter pack in `config.go`. Highlights include:
 
 * Terrain: `RockChance` 5 %, grass patch count 12 with radii 2–5 and density 0.6.【F:internal/sims/ecology/config.go†L64-L88】
-* Lava vent lifetime defaults to 20–40 ticks (`LavaLifeMin/Max`), and spread floor `LavaSpreadMaskFloor` 0.2 (currently unused but exposed for tuning).【F:internal/sims/ecology/config.go†L64-L83】
+* Lava vent lifetime defaults to 20–40 ticks (`LavaLifeMin/Max`) with a shared reservoir sized 160–300 units per vent (`LavaReservoirMin/Max`). Spread floor `LavaSpreadMaskFloor` remains 0.2 (currently unused but exposed for tuning).【F:internal/sims/ecology/config.go†L64-L88】
 * Wind: `WindNoiseScale` 0.01, `WindSpeedScale` 0.6, `WindTemporalScale` 0.05.【F:internal/sims/ecology/config.go†L80-L98】
 * All parameters are adjustable at runtime via the HUD parameter snapshot plumbing, and `FromMap` supports overriding values from CLI-style maps.【F:internal/sims/ecology/config.go†L120-L323】
 
