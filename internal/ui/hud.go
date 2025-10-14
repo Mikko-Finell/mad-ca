@@ -166,8 +166,12 @@ func (h *HUD) refreshControlValues() {
 				state.value = "--"
 				continue
 			}
-			state.floatValue = parsed
-			state.value = h.formatFloat(state.control, parsed)
+			value := parsed
+			if isChanceControl(state.control) {
+				value = parsed * 100
+			}
+			state.floatValue = value
+			state.value = h.formatFloat(state, value)
 			state.hasValue = true
 		default:
 			state.hasValue = false
@@ -274,10 +278,7 @@ func (h *HUD) applyAdjustment(state *hudControlState, direction int) {
 		if h.floatSetter == nil {
 			return
 		}
-		step := state.control.Step
-		if step <= 0 {
-			step = 0.05
-		}
+		step := h.floatStep(state)
 		target := state.floatValue + float64(direction)*step
 		if state.control.HasMin && target < state.control.Min {
 			target = state.control.Min
@@ -290,7 +291,7 @@ func (h *HUD) applyAdjustment(state *hudControlState, direction int) {
 		}
 		if h.floatSetter.SetFloatParameter(state.control.Key, target) {
 			state.floatValue = target
-			state.value = h.formatFloat(state.control, target)
+			state.value = h.formatFloat(state, target)
 		}
 	}
 }
@@ -378,10 +379,7 @@ func (h *HUD) canAdjust(state *hudControlState, direction int) bool {
 		if h.floatSetter == nil {
 			return false
 		}
-		step := state.control.Step
-		if step <= 0 {
-			step = 0.05
-		}
+		step := h.floatStep(state)
 		target := state.floatValue + float64(direction)*step
 		if state.control.HasMin && direction < 0 && target < state.control.Min {
 			return false
@@ -550,23 +548,82 @@ func (h *HUD) layoutControls() {
 	h.clampScroll()
 }
 
-func (h *HUD) formatFloat(ctrl core.ParameterControl, value float64) string {
-	step := ctrl.Step
-	if step <= 0 {
-		step = 0.05
+func (h *HUD) formatFloat(state *hudControlState, value float64) string {
+	if state == nil {
+		return strconv.FormatFloat(value, 'f', 2, 64)
 	}
-	precision := 2
+	step := h.floatStep(state)
+	if step <= 0 {
+		step = 0.01
+	}
+	precision := 0
 	switch {
-	case step < 0.001:
-		precision = 4
-	case step < 0.01:
-		precision = 3
-	case step < 0.1:
-		precision = 2
-	default:
+	case step >= 1:
+		precision = 0
+	case step >= 0.1:
 		precision = 1
+	case step >= 0.01:
+		precision = 2
+	case step >= 0.001:
+		precision = 3
+	case step >= 0.0001:
+		precision = 4
+	default:
+		precision = 6
 	}
 	return strconv.FormatFloat(value, 'f', precision, 64)
+}
+
+func (h *HUD) floatStep(state *hudControlState) float64 {
+	if state == nil {
+		return 0.01
+	}
+	ctrl := state.control
+	if ctrl.Step > 0 {
+		return ctrl.Step
+	}
+	if ctrl.HasMin && ctrl.HasMax {
+		span := ctrl.Max - ctrl.Min
+		if span > 0 {
+			step := span / 100
+			if step > 0 {
+				return step
+			}
+		}
+	}
+	value := math.Abs(state.floatValue)
+	if value > 0 {
+		step := value / 10
+		if step > 0 {
+			return step
+		}
+	}
+	if ctrl.HasMin {
+		base := math.Abs(ctrl.Min)
+		if base > 0 {
+			step := base / 10
+			if step > 0 {
+				return step
+			}
+		}
+	}
+	if ctrl.HasMax && !math.IsInf(ctrl.Max, 1) {
+		base := math.Abs(ctrl.Max)
+		if base > 0 {
+			step := base / 100
+			if step > 0 {
+				return step
+			}
+		}
+	}
+	return 0.01
+}
+
+func isChanceControl(ctrl core.ParameterControl) bool {
+	if ctrl.Key == "" {
+		return false
+	}
+	return strings.Contains(ctrl.Key, "chance")
 }
 
 func pointInRect(x, y int, rect image.Rectangle) bool {

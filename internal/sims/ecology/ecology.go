@@ -424,20 +424,125 @@ const (
 // adjustable from the HUD.
 func (w *World) ParameterControls() []core.ParameterControl {
 	return []core.ParameterControl{
-		floatControl("grass_spread_chance", "Grass spread chance", 0.05, 0, 1),
-		floatControl("shrub_growth_chance", "Shrub growth chance", 0.01, 0, 0.2),
-		floatControl("fire_spread_chance", "Fire spread chance", 0.05, 0, 1),
-		floatControl("fire_rain_spread_dampen", "Rain dampen factor", 0.05, 0, 1),
-		floatControl("rain_spawn_chance", "Rain spawn chance", 0.01, 0, 0.2),
-		floatControl("rain_strength_max", "Rain strength max", 0.05, 0, 1),
-		floatControl("wind_noise_scale", "Wind noise scale", 0.001, 0, 0.05),
-		floatControl("wind_speed_scale", "Wind speed scale", 0.05, 0, 2),
-		floatControl("lava_spread_chance", "Lava spread chance", 0.05, 0, 1),
-		floatControl("volcano_proto_spawn_chance", "Volcano proto spawn chance", 0.01, 0, 0.5),
-		floatControl("volcano_eruption_chance_base", "Volcano eruption chance", 0.01, 0, 1),
-		intControl("lava_life_min", "Lava life min", 1, 1, 90),
-		intControl("lava_life_max", "Lava life max", 1, 1, 120),
-		intControl("burn_ttl", "Burn duration", 1, 1, 10),
+		{
+			Key:    "grass_spread_chance",
+			Label:  "Grass spread chance",
+			Type:   core.ParamTypeFloat,
+			Min:    0,
+			Max:    100,
+			HasMin: true,
+			HasMax: true,
+		},
+		{
+			Key:    "shrub_growth_chance",
+			Label:  "Shrub growth chance",
+			Type:   core.ParamTypeFloat,
+			Min:    0,
+			Max:    100,
+			HasMin: true,
+			HasMax: true,
+		},
+		{
+			Key:    "fire_spread_chance",
+			Label:  "Fire spread chance",
+			Type:   core.ParamTypeFloat,
+			Min:    0,
+			Max:    100,
+			HasMin: true,
+			HasMax: true,
+		},
+		{
+			Key:    "fire_rain_spread_dampen",
+			Label:  "Rain dampen factor",
+			Type:   core.ParamTypeFloat,
+			Min:    0,
+			Max:    1,
+			HasMin: true,
+			HasMax: true,
+		},
+		{
+			Key:    "rain_spawn_chance",
+			Label:  "Rain spawn chance",
+			Type:   core.ParamTypeFloat,
+			Min:    0,
+			Max:    100,
+			HasMin: true,
+			HasMax: true,
+		},
+		{
+			Key:    "rain_strength_max",
+			Label:  "Rain strength max",
+			Type:   core.ParamTypeFloat,
+			Min:    0,
+			Max:    1,
+			HasMin: true,
+			HasMax: true,
+		},
+		{
+			Key:    "wind_noise_scale",
+			Label:  "Wind noise scale",
+			Type:   core.ParamTypeFloat,
+			Min:    0,
+			HasMin: true,
+		},
+		{
+			Key:    "wind_speed_scale",
+			Label:  "Wind speed scale",
+			Type:   core.ParamTypeFloat,
+			Min:    0,
+			HasMin: true,
+		},
+		{
+			Key:    "lava_spread_chance",
+			Label:  "Lava spread chance",
+			Type:   core.ParamTypeFloat,
+			Min:    0,
+			Max:    100,
+			HasMin: true,
+			HasMax: true,
+		},
+		{
+			Key:    "volcano_proto_spawn_chance",
+			Label:  "Volcano proto spawn chance",
+			Type:   core.ParamTypeFloat,
+			Min:    0,
+			Max:    100,
+			HasMin: true,
+			HasMax: true,
+		},
+		{
+			Key:    "volcano_eruption_chance_base",
+			Label:  "Volcano eruption chance",
+			Type:   core.ParamTypeFloat,
+			Min:    0,
+			Max:    100,
+			HasMin: true,
+			HasMax: true,
+		},
+		{
+			Key:    "lava_life_min",
+			Label:  "Lava life min",
+			Type:   core.ParamTypeInt,
+			Step:   1,
+			Min:    1,
+			HasMin: true,
+		},
+		{
+			Key:    "lava_life_max",
+			Label:  "Lava life max",
+			Type:   core.ParamTypeInt,
+			Step:   1,
+			Min:    1,
+			HasMin: true,
+		},
+		{
+			Key:    "burn_ttl",
+			Label:  "Burn duration",
+			Type:   core.ParamTypeInt,
+			Step:   1,
+			Min:    1,
+			HasMin: true,
+		},
 	}
 }
 
@@ -448,21 +553,28 @@ func (w *World) SetIntParameter(key string, value int) bool {
 	}
 	switch key {
 	case "lava_life_min":
-		clamped := clampInt(value, 1, 90)
-		if clamped > w.cfg.Params.LavaLifeMax {
-			w.cfg.Params.LavaLifeMax = clamped
+		if value < 1 {
+			value = 1
 		}
-		w.cfg.Params.LavaLifeMin = clamped
+		if value > w.cfg.Params.LavaLifeMax {
+			w.cfg.Params.LavaLifeMax = value
+		}
+		w.cfg.Params.LavaLifeMin = value
 		return true
 	case "lava_life_max":
-		clamped := clampInt(value, 1, 120)
-		if clamped < w.cfg.Params.LavaLifeMin {
-			clamped = w.cfg.Params.LavaLifeMin
+		if value < w.cfg.Params.LavaLifeMin {
+			value = w.cfg.Params.LavaLifeMin
 		}
-		w.cfg.Params.LavaLifeMax = clamped
+		if value < 1 {
+			value = 1
+		}
+		w.cfg.Params.LavaLifeMax = value
 		return true
 	case "burn_ttl":
-		w.cfg.Params.BurnTTL = clampInt(value, 1, 10)
+		if value < 1 {
+			value = 1
+		}
+		w.cfg.Params.BurnTTL = value
 		return true
 	default:
 		return false
@@ -476,19 +588,19 @@ func (w *World) SetFloatParameter(key string, value float64) bool {
 	}
 	switch key {
 	case "grass_spread_chance":
-		w.cfg.Params.GrassSpreadChance = clampFloat(value, 0, 1)
+		w.cfg.Params.GrassSpreadChance = percentToProbability(value)
 		return true
 	case "shrub_growth_chance":
-		w.cfg.Params.ShrubGrowthChance = clampFloat(value, 0, 0.2)
+		w.cfg.Params.ShrubGrowthChance = percentToProbability(value)
 		return true
 	case "fire_spread_chance":
-		w.cfg.Params.FireSpreadChance = clampFloat(value, 0, 1)
+		w.cfg.Params.FireSpreadChance = percentToProbability(value)
 		return true
 	case "fire_rain_spread_dampen":
 		w.cfg.Params.FireRainSpreadDampen = clampFloat(value, 0, 1)
 		return true
 	case "rain_spawn_chance":
-		w.cfg.Params.RainSpawnChance = clampFloat(value, 0, 0.2)
+		w.cfg.Params.RainSpawnChance = percentToProbability(value)
 		return true
 	case "rain_strength_max":
 		clamped := clampFloat(value, 0, 1)
@@ -498,19 +610,25 @@ func (w *World) SetFloatParameter(key string, value float64) bool {
 		w.cfg.Params.RainStrengthMax = clamped
 		return true
 	case "wind_noise_scale":
-		w.cfg.Params.WindNoiseScale = clampFloat(value, 0, 0.05)
+		if value < 0 {
+			value = 0
+		}
+		w.cfg.Params.WindNoiseScale = value
 		return true
 	case "wind_speed_scale":
-		w.cfg.Params.WindSpeedScale = clampFloat(value, 0, 2)
+		if value < 0 {
+			value = 0
+		}
+		w.cfg.Params.WindSpeedScale = value
 		return true
 	case "lava_spread_chance":
-		w.cfg.Params.LavaSpreadChance = clampFloat(value, 0, 1)
+		w.cfg.Params.LavaSpreadChance = percentToProbability(value)
 		return true
 	case "volcano_proto_spawn_chance":
-		w.cfg.Params.VolcanoProtoSpawnChance = clampFloat(value, 0, 0.5)
+		w.cfg.Params.VolcanoProtoSpawnChance = percentToProbability(value)
 		return true
 	case "volcano_eruption_chance_base":
-		w.cfg.Params.VolcanoEruptionChanceBase = clampFloat(value, 0, 1)
+		w.cfg.Params.VolcanoEruptionChanceBase = percentToProbability(value)
 		return true
 	default:
 		return false
@@ -679,42 +797,6 @@ func (w *World) Reset(seed int64) {
 	w.lavaAdvancedCells = w.lavaAdvancedCells[:0]
 }
 
-func floatControl(key, label string, step, min, max float64) core.ParameterControl {
-	return core.ParameterControl{
-		Key:    key,
-		Label:  label,
-		Type:   core.ParamTypeFloat,
-		Step:   step,
-		Min:    min,
-		Max:    max,
-		HasMin: true,
-		HasMax: true,
-	}
-}
-
-func intControl(key, label string, step float64, min, max int) core.ParameterControl {
-	return core.ParameterControl{
-		Key:    key,
-		Label:  label,
-		Type:   core.ParamTypeInt,
-		Step:   step,
-		Min:    float64(min),
-		Max:    float64(max),
-		HasMin: true,
-		HasMax: true,
-	}
-}
-
-func clampInt(value, min, max int) int {
-	if value < min {
-		return min
-	}
-	if value > max {
-		return max
-	}
-	return value
-}
-
 func clampFloat(value, min, max float64) float64 {
 	if value < min {
 		return min
@@ -723,6 +805,16 @@ func clampFloat(value, min, max float64) float64 {
 		return max
 	}
 	return value
+}
+
+func percentToProbability(value float64) float64 {
+	if value < 0 {
+		value = 0
+	}
+	if value > 100 {
+		value = 100
+	}
+	return value / 100
 }
 
 // Step advances the simulation by applying the vegetation succession rules once.
