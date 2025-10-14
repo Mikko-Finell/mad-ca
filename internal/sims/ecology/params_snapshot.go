@@ -30,8 +30,8 @@ func (w *World) Parameters() core.ParameterSnapshot {
 		{
 			Name: "Lava",
 			Params: []core.Parameter{
-				intParam("lava_life_min", "Lava life min", params.LavaLifeMin),
-				intParam("lava_life_max", "Lava life max", params.LavaLifeMax),
+				intParam("lava_life_min", "Lava fuel min", params.LavaLifeMin),
+				intParam("lava_life_max", "Lava fuel max", params.LavaLifeMax),
 				floatParam("lava_spread_chance", "Lava spread chance", params.LavaSpreadChance),
 				floatParam("lava_spread_mask_floor", "Lava spread mask floor", params.LavaSpreadMaskFloor),
 				floatParam("lava_cooling_extra", "Lava cooling extra", params.LavaCoolingExtra),

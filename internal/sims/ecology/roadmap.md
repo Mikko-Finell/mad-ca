@@ -120,6 +120,7 @@
 * Proto-volcano lifecycle now consumes proto expirations to trigger eruptions that seed lava cores, uplift rims, and clear vegetation. The lava subsystem now carries thickness/temperature/heading data, advances tips along slopes with channel reinforcement, handles pooling and crusting, and vents maintain core flux. Rain both penalizes forward scoring and boosts cooling, and new tests cover vent seeding, cooling/crusting, channel reinforcement, and lava-driven ignition.
 * HUD exposes an adjustable volcano eruption base chance so tuning sessions can readily force eruptions when needed.
 * Lava lifetime HUD controls now drive vent TTL ranges directly and clamp active vents to the configured bounds for immediate feedback during tuning.
+* Vent fueling now models a finite magma pocket: vents draw from 20–40 units of fuel, keep the caldera reheated while pumping, and crater pools retain heat longer after removing the old pooling cooldown penalty.
 
 ---
 

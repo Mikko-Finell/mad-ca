@@ -59,8 +59,8 @@ func TestEruptionSeedsLavaRivers(t *testing.T) {
 		t.Fatal("expected eruption to create active vents")
 	}
 	for _, vent := range world.lavaVents {
-		if vent.ttl < cfg.Params.LavaLifeMin || vent.ttl > cfg.Params.LavaLifeMax {
-			t.Fatalf("vent ttl out of range: %d", vent.ttl)
+		if vent.fuel < cfg.Params.LavaLifeMin || vent.fuel > cfg.Params.LavaLifeMax {
+			t.Fatalf("vent fuel out of range: %d", vent.fuel)
 		}
 		if vent.outIdx < 0 || vent.outIdx >= len(world.groundCurr) {
 			t.Fatalf("vent out index out of bounds: %d", vent.outIdx)
@@ -104,8 +104,8 @@ func TestLavaLifeParametersClampActiveVents(t *testing.T) {
 		t.Fatal("failed to set lava life max")
 	}
 	for _, vent := range world.lavaVents {
-		if vent.ttl != 5 {
-			t.Fatalf("expected vent ttl to clamp to new range, got %d", vent.ttl)
+		if vent.fuel != 5 {
+			t.Fatalf("expected vent fuel to clamp to new range, got %d", vent.fuel)
 		}
 	}
 
@@ -116,8 +116,8 @@ func TestLavaLifeParametersClampActiveVents(t *testing.T) {
 		t.Fatal("failed to expand lava life min")
 	}
 	for _, vent := range world.lavaVents {
-		if vent.ttl < 300 || vent.ttl > 400 {
-			t.Fatalf("expected vent ttl within expanded range, got %d", vent.ttl)
+		if vent.fuel < 300 || vent.fuel > 400 {
+			t.Fatalf("expected vent fuel within expanded range, got %d", vent.fuel)
 		}
 	}
 }
@@ -138,7 +138,7 @@ func TestLavaCoolingCrustsAndSolidifies(t *testing.T) {
 	world.lavaTip[0] = false
 	world.lavaElevation[0] = 3
 
-	for i := 0; i < 40; i++ {
+	for i := 0; i < 80; i++ {
 		world.applyLava()
 	}
 
