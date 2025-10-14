@@ -10,6 +10,26 @@ application shell, and a growing catalog of simulation rules. Each simulation is
 go run -tags ebiten ./cmd/ca -sim=life -scale=3 -tps=60
 ```
 
+### Auto-sync dev loop
+
+`make run` and the sim-specific targets (for example `make ecology` or
+`make briansbrain`) delegate to `scripts/devsync.sh`. The helper keeps the
+working tree aligned with the branch you have checked out, rebuilds the binary,
+and restarts the simulation automatically whenever the upstream branch changes.
+Override the defaults by exporting environment variables before invoking the
+target:
+
+```bash
+# follow a feature branch and poll every 5 seconds
+BRANCH=my-feature POLL_SECONDS=5 make ecology
+```
+
+Without overrides the script follows the branch currently checked out in your
+working tree, so `make life` continues polling the same branch you are editing.
+
+Pass additional simulation flags directly to the Make target; they will be
+forwarded to the built binary by the helper script.
+
 > **Note**
 >
 > The graphical build depends on native GLFW/X11 headers. When those headers are

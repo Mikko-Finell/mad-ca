@@ -1,8 +1,15 @@
-run:
-	go run -tags ebiten ./cmd/ca
+SIMS := briansbrain ecology elementary life
 
-run-life:
-	go run -tags ebiten ./cmd/ca -sim=life
+.PHONY: run $(SIMS) run-% build lint wasm
+
+run:
+        ./scripts/devsync.sh
+
+run-%:
+        ./scripts/devsync.sh -sim=$*
+
+$(SIMS):
+        ./scripts/devsync.sh -sim=$@
 
 build:
 	mkdir -p bin
