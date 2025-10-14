@@ -379,9 +379,25 @@ func (w *World) buildLavaElevation(region volcanoProtoRegion) {
 	}
 	cx := region.cx
 	cy := region.cy
-	for y := 0; y < w.h; y++ {
-		for x := 0; x < w.w; x++ {
+	radius := math.Max(region.radius, 0)
+	effectRadius := radius + 2*radius
+	minX := int(math.Max(0, math.Floor(cx-effectRadius)))
+	maxX := int(math.Min(float64(w.w-1), math.Ceil(cx+effectRadius)))
+	minY := int(math.Max(0, math.Floor(cy-effectRadius)))
+	maxY := int(math.Min(float64(w.h-1), math.Ceil(cy+effectRadius)))
+	if minX > maxX || minY > maxY {
+		return
+	}
+	for y := minY; y <= maxY; y++ {
+		for x := minX; x <= maxX; x++ {
 			idx := y*w.w + x
+			dx := (float64(x) + 0.5) - cx
+			dy := (float64(y) + 0.5) - cy
+			dist := math.Sqrt(dx*dx + dy*dy)
+			if dist > effectRadius {
+				continue
+			}
+
 			base := int16(3)
 			if idx < len(w.groundCurr) {
 				switch w.groundCurr[idx] {
@@ -395,10 +411,7 @@ func (w *World) buildLavaElevation(region volcanoProtoRegion) {
 			if idx < len(w.lavaNoise) {
 				noise = int16(w.lavaNoise[idx])
 			}
-			dx := (float64(x) + 0.5) - cx
-			dy := (float64(y) + 0.5) - cy
 			angle := math.Atan2(dy, dx)
-			dist := math.Sqrt(dx*dx + dy*dy)
 			slope := int16(math.Round(dist / slopeScale))
 			elev := base + noise - slope
 			if dist <= region.radius*1.2 && inOpening(angle) {
@@ -406,7 +419,9 @@ func (w *World) buildLavaElevation(region volcanoProtoRegion) {
 					elev = headLevel
 				}
 			}
-			w.lavaElevation[idx] = elev
+			if idx < len(w.lavaElevation) && elev > w.lavaElevation[idx] {
+				w.lavaElevation[idx] = elev
+			}
 		}
 	}
 }
