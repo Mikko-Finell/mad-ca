@@ -635,33 +635,6 @@ func (w *World) SetFloatParameter(key string, value float64) bool {
 	}
 }
 
-// WindVectorSample reports an aggregate wind vector for the active rain regions.
-// When no regions are active the sample falls back to the world centre so the
-// HUD can continue to display the prevailing field direction.
-func (w *World) WindVectorSample() (float64, float64) {
-	if w == nil {
-		return 0, 0
-	}
-	if len(w.rainRegions) == 0 {
-		if w.w == 0 || w.h == 0 {
-			return 0, 0
-		}
-		cx := float64(w.w) * 0.5
-		cy := float64(w.h) * 0.5
-		return w.windVector(cx, cy, w.cfg.Seed)
-	}
-	var sumX, sumY float64
-	for _, region := range w.rainRegions {
-		sumX += region.vx
-		sumY += region.vy
-	}
-	count := float64(len(w.rainRegions))
-	if count == 0 {
-		return 0, 0
-	}
-	return sumX / count, sumY / count
-}
-
 // New returns an Ecology simulation with the provided dimensions using defaults.
 func New(w, h int) *World {
 	cfg := DefaultConfig()
@@ -731,6 +704,16 @@ func (w *World) RainMask() []float32 { return w.rainCurr }
 
 // VolcanoMask exposes the current volcano influence map.
 func (w *World) VolcanoMask() []float32 { return w.volCurr }
+
+// WindVectorAt samples the prevailing wind vector at the provided world
+// coordinate. The coordinate is expressed in cell units where integer values
+// fall on tile boundaries and `.5` values represent tile centres.
+func (w *World) WindVectorAt(x, y float64) (float64, float64) {
+	if w == nil {
+		return 0, 0
+	}
+	return w.windVector(x, y, w.cfg.Seed)
+}
 
 // TectonicMap exposes the static tectonic baseline values.
 func (w *World) TectonicMap() []float32 { return w.tectonic }
