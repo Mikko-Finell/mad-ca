@@ -121,6 +121,7 @@
 * HUD exposes an adjustable volcano eruption base chance so tuning sessions can readily force eruptions when needed.
 * Lava persistence now leans on reservoir-fed vents and flux-aware cooling so crater pools linger while flowing rivers stay molten. The HUD snapshot exposes the new cooling and reservoir parameters for future tuning passes.
 * **Follow-up:** Focus on river shaping—channel-biased flow scoring, smarter overflow spokes, and telemetry for reservoir mass/flux to validate the new persistence model.
+* Latest crater rebuild pass carves 1–3 random spillway openings whose floor matches the reservoir head so vents keep feeding once the starter pool drains along those exits.
 
 ---
 
