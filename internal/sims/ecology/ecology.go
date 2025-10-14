@@ -829,6 +829,9 @@ func (w *World) RainMask() []float32 { return w.rainCurr }
 // VolcanoMask exposes the current volcano influence map.
 func (w *World) VolcanoMask() []float32 { return w.volCurr }
 
+// ElevationField exposes the pseudo-elevation raster used for lava flow routing.
+func (w *World) ElevationField() []int16 { return w.lavaElevation }
+
 // WindVectorAt samples the prevailing wind vector at the provided world
 // coordinate. The coordinate is expressed in cell units where integer values
 // fall on tile boundaries and `.5` values represent tile centres.
