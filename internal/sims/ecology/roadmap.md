@@ -53,6 +53,7 @@
 
 * Implemented helper-based neighbor counting and per-tick succession updates with unit tests covering spread and stage advancement.
 * Added vegetation telemetry (per-stage counts and cluster histogram) with deterministic regression tests verifying growth curve and patchiness.
+* Default grass spread chance now starts at 100%, so the initial seeding phase quickly knits together meadows for subsequent succession tuning.
 
 **Exit Criteria**
 
@@ -122,6 +123,8 @@
 * Lava persistence now leans on reservoir-fed vents and flux-aware cooling so crater pools linger while flowing rivers stay molten. The HUD snapshot exposes the new cooling and reservoir parameters for future tuning passes.
 * **Follow-up:** Focus on river shaping—channel-biased flow scoring, smarter overflow spokes, and telemetry for reservoir mass/flux to validate the new persistence model.
 * Latest crater rebuild pass carves 1–3 random spillway openings whose floor matches the reservoir head so vents keep feeding once the starter pool drains along those exits.
+* HUD cleanup removed the redundant “Ecology Controls” banner and now surfaces direct adjustments for lava cooling, flux reference, reservoir head, and proto strength/uplift so lava longevity and volcano shaping can be tuned live.
+* Shift-clicking the map now drops a proto-volcano at the cursor, giving tuning sessions a deterministic way to raise cones without waiting for random spawns.
 
 ---
 

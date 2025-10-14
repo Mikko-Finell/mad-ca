@@ -20,6 +20,11 @@ type Igniter interface {
 	IgniteAt(x, y int)
 }
 
+// VolcanoSpawner allows simulations to surface manual proto-volcano creation for debugging.
+type VolcanoSpawner interface {
+	SpawnVolcanoAt(x, y int)
+}
+
 // PaletteProvider allows simulations to expose a color palette for rendering
 // multi-valued cell buffers. When unavailable the renderer falls back to the
 // binary on/off colors.
@@ -43,6 +48,7 @@ type Game struct {
 	seed     int64
 
 	igniter  Igniter
+	volcano  VolcanoSpawner
 	hudWidth int
 }
 
@@ -56,6 +62,10 @@ func New(sim core.Sim, scale int, seed int64) *Game {
 	var igniter Igniter
 	if i, ok := sim.(Igniter); ok {
 		igniter = i
+	}
+	var volcano VolcanoSpawner
+	if v, ok := sim.(VolcanoSpawner); ok {
+		volcano = v
 	}
 	baseWidth := size.W * scale
 	hudWidth := int(math.Round(float64(baseWidth) / 4.0))
@@ -72,6 +82,7 @@ func New(sim core.Sim, scale int, seed int64) *Game {
 		scale:    scale,
 		seed:     seed,
 		igniter:  igniter,
+		volcano:  volcano,
 		hudWidth: hudWidth,
 	}
 }
@@ -112,13 +123,20 @@ func (g *Game) Update() error {
 		g.hud.Update(baseWidth)
 	}
 
-	if g.igniter != nil && inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 		mx, my := ebiten.CursorPosition()
 		scale := g.scale
 		if scale <= 0 {
 			scale = 1
 		}
-		g.igniter.IgniteAt(mx/scale, my/scale)
+		tx, ty := mx/scale, my/scale
+		if ebiten.IsKeyPressed(ebiten.KeyShift) {
+			if g.volcano != nil {
+				g.volcano.SpawnVolcanoAt(tx, ty)
+			}
+		} else if g.igniter != nil {
+			g.igniter.IgniteAt(tx, ty)
+		}
 	}
 
 	if (!g.paused) || g.tickOnce {

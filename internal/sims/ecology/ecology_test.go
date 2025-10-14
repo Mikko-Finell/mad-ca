@@ -224,6 +224,65 @@ func TestSpawnVolcanoProtoRespectsTectonicThreshold(t *testing.T) {
 	}
 }
 
+func TestSpawnVolcanoAtCreatesRegion(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Width = 16
+	cfg.Height = 12
+	cfg.Params.VolcanoProtoRadiusMin = 4
+	cfg.Params.VolcanoProtoRadiusMax = 10
+	cfg.Params.VolcanoProtoTTLMin = 5
+	cfg.Params.VolcanoProtoTTLMax = 11
+	cfg.Params.VolcanoProtoStrengthMin = 0.25
+	cfg.Params.VolcanoProtoStrengthMax = 0.75
+
+	world := NewWithConfig(cfg)
+	world.Reset(0)
+
+	world.SpawnVolcanoAt(6, 7)
+
+	if len(world.volcanoRegions) != 1 {
+		t.Fatalf("expected one manual volcano region, got %d", len(world.volcanoRegions))
+	}
+
+	region := world.volcanoRegions[0]
+	if math.Abs(region.cx-(6.5)) > 1e-6 || math.Abs(region.cy-(7.5)) > 1e-6 {
+		t.Fatalf("expected region centered on tile, got (%.3f, %.3f)", region.cx, region.cy)
+	}
+
+	expectedRadius := float64(cfg.Params.VolcanoProtoRadiusMin + (cfg.Params.VolcanoProtoRadiusMax-cfg.Params.VolcanoProtoRadiusMin)/2)
+	if math.Abs(region.radius-expectedRadius) > 1e-6 {
+		t.Fatalf("expected radius %.3f, got %.3f", expectedRadius, region.radius)
+	}
+
+	expectedTTL := cfg.Params.VolcanoProtoTTLMin + (cfg.Params.VolcanoProtoTTLMax-cfg.Params.VolcanoProtoTTLMin)/2
+	if region.ttl != expectedTTL {
+		t.Fatalf("expected ttl %d, got %d", expectedTTL, region.ttl)
+	}
+
+	expectedStrength := cfg.Params.VolcanoProtoStrengthMin + (cfg.Params.VolcanoProtoStrengthMax-cfg.Params.VolcanoProtoStrengthMin)/2
+	if math.Abs(region.strength-expectedStrength) > 1e-6 {
+		t.Fatalf("expected strength %.3f, got %.3f", expectedStrength, region.strength)
+	}
+}
+
+func TestSpawnVolcanoAtOutOfBoundsIgnored(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Width = 8
+	cfg.Height = 8
+
+	world := NewWithConfig(cfg)
+	world.Reset(0)
+
+	world.SpawnVolcanoAt(-1, 0)
+	world.SpawnVolcanoAt(0, -1)
+	world.SpawnVolcanoAt(8, 0)
+	world.SpawnVolcanoAt(0, 8)
+
+	if len(world.volcanoRegions) != 0 {
+		t.Fatalf("expected out-of-bounds spawn attempts to be ignored, got %d regions", len(world.volcanoRegions))
+	}
+}
+
 func TestFireBurnsOutAndClears(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Width = 3

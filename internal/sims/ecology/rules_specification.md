@@ -156,7 +156,7 @@ Vegetation updates after fire, using cached Moore neighbor counts for grass and 
 
 | Transition | Condition | Probability | Default neighbors |
 | ---------- | --------- | ----------- | ----------------- |
-| Dirt → Grass | Tile is `Dirt`, at least `GrassNeighborThreshold` grass neighbors, and random < `GrassSpreadChance`. | Configurable (defaults: threshold 1, chance 0.25). |
+| Dirt → Grass | Tile is `Dirt`, at least `GrassNeighborThreshold` grass neighbors, and random < `GrassSpreadChance`. | Configurable (defaults: threshold 1, chance 1.0). |
 | Grass → Shrub | At least `ShrubNeighborThreshold` grass neighbors and random < `ShrubGrowthChance`. | Defaults: threshold 3, chance 0.04. |
 | Shrub → Tree | At least `TreeNeighborThreshold` shrub neighbors and random < `TreeGrowthChance`. | Defaults: threshold 3, chance 0.02. |
 
