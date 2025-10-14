@@ -26,6 +26,7 @@ The ecology simulation is a deterministic 2‑D cellular automaton that couples 
 | `lavaForce`          | bool                     | Forces overflow advancement when height ≥4. |
 | `lavaChannel`        | float32 (≥0)             | Memory of prior flow that biases routing. |
 | `lavaElevation`      | int16                    | Pseudo-elevation raster constructed per eruption. |
+| `lavaFluxOut`        | float32 (≥0)             | Units discharged last tick for flux-based cooling. |
 | `burnTTL`            | uint8 (ticks remaining)  | Non-zero values denote burning vegetation. |
 | `rainMask`           | float32 [0,1]            | Influence map rasterized from active rain regions. |
 | `volcanoMask`        | float32 [0,1]            | Influence map rasterized from proto-volcano regions. |
@@ -120,12 +121,24 @@ Base strength rolls between `max(0.5, RainStrengthMin)` and `RainStrengthMax` (d
 
 ## 6. Lava Dynamics
 
-* **Injection:** Each vent tracks a finite `massRemaining` reservoir and a target head height. Each tick it injects `ceil(Kp × max(0, head − surface))` units (capped by remaining mass and height limit 7), reheating the vent tile to 1.0 and refreshing the designated outlet cell as an advancing tip. Reservoir depletion removes the vent automatically.【F:internal/sims/ecology/ecology.go†L2398-L2487】
-* **Tip advancement:** Tips attempt to move forward each tick. The movement chance is `lavaBaseSpeed × temp / (1 + lavaSpeedAlpha × height)` unless forced by overflow. Candidate destinations score `1.0·slope + 0.6·alignment + 0.8·channel − 0.5·rain − 2.0·uphill`. Moves proceed when the best score ≥0.9 (or ≥0 when forced). If the source column is tall enough (height ≥3) and a second candidate scores within 0.75, a split may spawn an extra branch (25 % chance).【F:internal/sims/ecology/ecology.go†L2574-L2725】
-* **Pooling & overflow:** Failed tips thicken the trunk (up to height 7). They may fill adjacent low cells with stationary pools (`dir = -1`); low-flux pools cool fastest under the flux-weighted cooling rule and can overflow later when reheated.【F:internal/sims/ecology/ecology.go†L2727-L2797】【F:internal/sims/ecology/ecology.go†L2805-L2864】
-* **Cooling & crusting:** Flux-aware cooling from §4.4 subtracts temperature then applies a hysteresis threshold: when `temp ≤ Tc` lava sheds one unit (clamped to ≥1) and its heat is capped at `min(Tc + Teps, lavaReheatCap)`. Once thickness reaches 1 and falls below the threshold it solidifies to `Rock` and clears lava metadata.【F:internal/sims/ecology/ecology.go†L2805-L2864】
-* **Channel memory:** Tiles that advanced gain +0.15 channel weight (clamped ≤1). Global decay (0.5 % per tick) keeps flow paths semi-permanent without locking them forever.【F:internal/sims/ecology/ecology.go†L2825-L2844】
-* **Tip detection:** After updates, tips are recomputed using temperature, height, and local lava connectivity (≤2 lava neighbors).【F:internal/sims/ecology/ecology.go†L2846-L2881】
+### 6.1 State & parameters
+
+* **Per-tile:** Each lava column tracks height `h`, temperature `T`, heading `dir`, advancing-tip flag, forced-overflow flag, channel memory, eruption elevation, and the **flux accumulator** `q_out`, which records total mass discharged during the tick.【F:internal/sims/ecology/ecology.go†L2325-L2362】【F:internal/sims/ecology/ecology.go†L2552-L2675】
+* **Per-vent:** Active vents own a finite **reservoir mass** `massRemaining`, a target **head height**, and a proportional gain `gain` (`Kp`).【F:internal/sims/ecology/ecology.go†L2398-L2487】
+* **Config:** Cooling coefficients (`LavaCoolBase`, `Rain`, `Edge`, `Thick`, `Flux`), flux reference scale (`LavaFluxRef`), and reservoir knobs (`LavaReservoirMin/Max`, `LavaReservoirGain`, `LavaReservoirHead`) live in the ecology config and are surfaced via the HUD snapshot plumbing.【F:internal/sims/ecology/config.go†L64-L113】【F:internal/sims/ecology/params_snapshot.go†L83-L128】
+
+### 6.2 Tick order
+
+1. **Vent injection:** For each vent cell the simulator measures the local free surface `η = terrain + h` and injects `m_in = min(massRemaining, gain × max(0, head − η))`. The vent reheats to full temperature, credits the mass to the local column, and decrements the reservoir; vents deactivate when depleted.【F:internal/sims/ecology/ecology.go†L2398-L2487】
+2. **Movement & flux capture:** Tip advancement uses the existing scoring model (`slope`, `alignment`, `channel`, `rain`, `uphill`, overflow forcing) to route lava. Whenever a move transfers `m` units from source `x` to destination `y`, the source height drops by `m`, the destination gains `m`, and `q_out(x)` accumulates `m`. Splits and overflow reuse the same accounting.【F:internal/sims/ecology/ecology.go†L2552-L2725】
+3. **Flux-based cooling:** After motion the engine cools every lava tile by
+
+   `ΔT = LavaCoolBase + LavaCoolRain·rain + LavaCoolEdge·edge + LavaCoolThick·σ(h) + LavaCoolFlux·(1 − clamp(q_out/LavaFluxRef, 0, 1))`,
+
+   where `σ(h) = 1 − e^{−h}`. High discharge (`q_out ≈ LavaFluxRef`) reduces the flux term while stagnant pools (`q_out ≈ 0`) pay the full penalty. Temperatures clamp to [0,1] and `q_out` resets afterwards.【F:internal/sims/ecology/ecology.go†L2727-L2864】
+4. **Phase change with hysteresis:** Columns solidify when `T ≤ Tc`; crusts re-melt only if reheated above `Tc + Teps`, avoiding frame-to-frame flicker. Tall columns shed a unit as they freeze, while height-1 columns revert to `Rock` and clear lava metadata.【F:internal/sims/ecology/ecology.go†L2830-L2864】
+5. **Channel maintenance:** Tiles that successfully advanced gain +0.15 channel weight (clamped ≤1). All tiles decay channel memory by 0.5 % each tick so old paths fade but remain influential during eruptions.【F:internal/sims/ecology/ecology.go†L2825-L2844】
+6. **Tip detection:** The simulator rebuilds the tip set using temperature, local connectivity, and crust state, guaranteeing the next tick only considers actively flowing fronts.【F:internal/sims/ecology/ecology.go†L2846-L2881】
 
 ---
 
