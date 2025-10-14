@@ -565,9 +565,6 @@ func (w *World) rasterizeRainRegion(region *rainRegion) {
 			nx := (rx * stretchX) * noiseScale
 			ny := (ry * stretchY) * noiseScale
 			n := fbmNoise2D(nx, ny, 3, 0.5, 1.9, region.noiseSeed)
-			if n < threshold {
-				continue
-			}
 
 			distX := rx * invRadiusX
 			distY := ry * invRadiusY
@@ -576,13 +573,21 @@ func (w *World) rasterizeRainRegion(region *rainRegion) {
 				continue
 			}
 
-			fall := smoothstep(0, 1, 1-math.Pow(radial, falloff))
-			if fall <= 0 {
+			// SOFT CLOUD MASK
+			c := smoothstep(threshold-0.08, threshold+0.08, n)
+			if c <= 0 {
 				continue
 			}
 
-			value := float32(clamp01(fall * strength))
-			if value <= 0.01 {
+			// RADIAL CORE FLOOR (prevents central holes)
+			if radial < 0.35 {
+				c = 1
+			}
+
+			// final value uses soft mask instead of step
+			fall := smoothstep(0, 1, 1-math.Pow(radial, falloff))
+			val := float32(clamp01(float64(c) * fall * strength))
+			if val <= 0.01 {
 				continue
 			}
 
@@ -590,10 +595,10 @@ func (w *World) rasterizeRainRegion(region *rainRegion) {
 			if idx < 0 || idx >= len(w.rainNext) {
 				continue
 			}
-			if value <= w.rainNext[idx] {
+			if val <= w.rainNext[idx] {
 				continue
 			}
-			w.rainNext[idx] = value
+			w.rainNext[idx] = val
 		}
 	}
 }
@@ -723,7 +728,7 @@ func (w *World) applyRainMorphology() {
 		return
 	}
 
-	radius := 1
+	radius := 2 // was 1; better at sealing noise-made pinholes
 	for y := 0; y < w.h; y++ {
 		for x := 0; x < w.w; x++ {
 			maxVal := float32(0)
@@ -836,7 +841,7 @@ func (w *World) makeRainRegion() rainRegion {
 		baseStrength += w.rng.Float64() * (strengthMax - strengthMin)
 	}
 
-	threshold := 0.35 + w.rng.Float64()*0.2
+	threshold := 0.35 + w.rng.Float64()*0.1
 	falloff := 1.4
 	noiseScale := 0.08 + w.rng.Float64()*0.01
 	stretchX := 1.0
