@@ -3418,7 +3418,7 @@ func (w *World) IgniteAt(x, y int) {
 	w.rebuildDisplay()
 }
 
-// SpawnVolcanoAt seeds a proto-volcano region centered on the provided coordinates.
+// SpawnVolcanoAt triggers an immediate eruption centered on the provided coordinates.
 func (w *World) SpawnVolcanoAt(x, y int) {
 	if x < 0 || y < 0 || x >= w.w || y >= w.h {
 		return
@@ -3461,7 +3461,8 @@ func (w *World) SpawnVolcanoAt(x, y int) {
 		ttl:      ttl,
 		noise:    w.rng.Int63(),
 	}
-	w.volcanoRegions = append(w.volcanoRegions, region)
+
+	w.eruptRegion(region)
 }
 
 // Metrics exposes the latest vegetation telemetry.

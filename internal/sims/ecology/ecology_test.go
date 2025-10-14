@@ -224,7 +224,7 @@ func TestSpawnVolcanoProtoRespectsTectonicThreshold(t *testing.T) {
 	}
 }
 
-func TestSpawnVolcanoAtCreatesRegion(t *testing.T) {
+func TestSpawnVolcanoAtEruptsImmediately(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Width = 16
 	cfg.Height = 12
@@ -240,28 +240,22 @@ func TestSpawnVolcanoAtCreatesRegion(t *testing.T) {
 
 	world.SpawnVolcanoAt(6, 7)
 
-	if len(world.volcanoRegions) != 1 {
-		t.Fatalf("expected one manual volcano region, got %d", len(world.volcanoRegions))
+	if len(world.volcanoRegions) != 0 {
+		t.Fatalf("expected manual spawn to erupt immediately without proto regions, got %d", len(world.volcanoRegions))
 	}
 
-	region := world.volcanoRegions[0]
-	if math.Abs(region.cx-(6.5)) > 1e-6 || math.Abs(region.cy-(7.5)) > 1e-6 {
-		t.Fatalf("expected region centered on tile, got (%.3f, %.3f)", region.cx, region.cy)
+	if len(world.lavaVents) == 0 {
+		t.Fatalf("expected eruption to create lava vents")
 	}
 
-	expectedRadius := float64(cfg.Params.VolcanoProtoRadiusMin + (cfg.Params.VolcanoProtoRadiusMax-cfg.Params.VolcanoProtoRadiusMin)/2)
-	if math.Abs(region.radius-expectedRadius) > 1e-6 {
-		t.Fatalf("expected radius %.3f, got %.3f", expectedRadius, region.radius)
+	var lavaTiles int
+	for _, g := range world.groundCurr {
+		if g == GroundLava {
+			lavaTiles++
+		}
 	}
-
-	expectedTTL := cfg.Params.VolcanoProtoTTLMin + (cfg.Params.VolcanoProtoTTLMax-cfg.Params.VolcanoProtoTTLMin)/2
-	if region.ttl != expectedTTL {
-		t.Fatalf("expected ttl %d, got %d", expectedTTL, region.ttl)
-	}
-
-	expectedStrength := cfg.Params.VolcanoProtoStrengthMin + (cfg.Params.VolcanoProtoStrengthMax-cfg.Params.VolcanoProtoStrengthMin)/2
-	if math.Abs(region.strength-expectedStrength) > 1e-6 {
-		t.Fatalf("expected strength %.3f, got %.3f", expectedStrength, region.strength)
+	if lavaTiles == 0 {
+		t.Fatalf("expected eruption to seed lava tiles")
 	}
 }
 
@@ -273,6 +267,13 @@ func TestSpawnVolcanoAtOutOfBoundsIgnored(t *testing.T) {
 	world := NewWithConfig(cfg)
 	world.Reset(0)
 
+	initialLava := 0
+	for _, g := range world.groundCurr {
+		if g == GroundLava {
+			initialLava++
+		}
+	}
+
 	world.SpawnVolcanoAt(-1, 0)
 	world.SpawnVolcanoAt(0, -1)
 	world.SpawnVolcanoAt(8, 0)
@@ -280,6 +281,20 @@ func TestSpawnVolcanoAtOutOfBoundsIgnored(t *testing.T) {
 
 	if len(world.volcanoRegions) != 0 {
 		t.Fatalf("expected out-of-bounds spawn attempts to be ignored, got %d regions", len(world.volcanoRegions))
+	}
+
+	if len(world.lavaVents) != 0 {
+		t.Fatalf("expected out-of-bounds attempts to create no vents, got %d", len(world.lavaVents))
+	}
+
+	var lavaTiles int
+	for _, g := range world.groundCurr {
+		if g == GroundLava {
+			lavaTiles++
+		}
+	}
+	if lavaTiles != initialLava {
+		t.Fatalf("expected lava tiles unchanged after ignored spawns, got %d want %d", lavaTiles, initialLava)
 	}
 }
 
