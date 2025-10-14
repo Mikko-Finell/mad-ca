@@ -334,6 +334,45 @@ func (w *World) buildLavaElevation(region volcanoProtoRegion) {
 	if total == 0 || len(w.lavaElevation) != total {
 		return
 	}
+	var openings []struct {
+		center    float64
+		halfWidth float64
+	}
+	if region.radius > 0 {
+		openings = make([]struct {
+			center    float64
+			halfWidth float64
+		}, 1+w.rng.Intn(3))
+		for i := range openings {
+			widthDeg := float64(12 + w.rng.Intn(19))
+			openings[i].center = w.rng.Float64() * 2 * math.Pi
+			openings[i].halfWidth = (widthDeg * math.Pi / 180) / 2
+		}
+	}
+	inOpening := func(angle float64) bool {
+		if len(openings) == 0 {
+			return false
+		}
+		const twoPi = 2 * math.Pi
+		angle = math.Mod(angle, twoPi)
+		if angle < 0 {
+			angle += twoPi
+		}
+		for _, opening := range openings {
+			diff := math.Mod(angle-opening.center+math.Pi, twoPi) - math.Pi
+			if diff < -math.Pi {
+				diff += twoPi
+			}
+			if math.Abs(diff) <= opening.halfWidth {
+				return true
+			}
+		}
+		return false
+	}
+	headLevel := int16(math.Floor(w.cfg.Params.LavaReservoirHead))
+	if headLevel < 0 {
+		headLevel = 0
+	}
 	slopeScale := float64(20 + w.rng.Intn(21))
 	if slopeScale <= 0 {
 		slopeScale = 20
@@ -358,9 +397,16 @@ func (w *World) buildLavaElevation(region volcanoProtoRegion) {
 			}
 			dx := (float64(x) + 0.5) - cx
 			dy := (float64(y) + 0.5) - cy
+			angle := math.Atan2(dy, dx)
 			dist := math.Sqrt(dx*dx + dy*dy)
 			slope := int16(math.Round(dist / slopeScale))
-			w.lavaElevation[idx] = base + noise - slope
+			elev := base + noise - slope
+			if dist <= region.radius*1.2 && inOpening(angle) {
+				if elev > headLevel {
+					elev = headLevel
+				}
+			}
+			w.lavaElevation[idx] = elev
 		}
 	}
 }
