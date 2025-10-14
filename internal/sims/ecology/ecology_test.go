@@ -638,37 +638,6 @@ func countGroundTiles(buf []Ground, target Ground) int {
 	return count
 }
 
-func TestWindVectorSample(t *testing.T) {
-	cfg := DefaultConfig()
-	cfg.Width = 48
-	cfg.Height = 48
-	world := NewWithConfig(cfg)
-	world.Reset(0)
-
-	world.rainRegions = []rainRegion{
-		{vx: 0.6, vy: -0.2},
-		{vx: -0.2, vy: 0.4},
-		{vx: 0.1, vy: 0.5},
-	}
-
-	vx, vy := world.WindVectorSample()
-	expectedVX := (0.6 - 0.2 + 0.1) / 3
-	expectedVY := (-0.2 + 0.4 + 0.5) / 3
-	if math.Abs(vx-expectedVX) > 1e-6 {
-		t.Fatalf("expected average vx %.3f, got %.3f", expectedVX, vx)
-	}
-	if math.Abs(vy-expectedVY) > 1e-6 {
-		t.Fatalf("expected average vy %.3f, got %.3f", expectedVY, vy)
-	}
-
-	world.rainRegions = nil
-	expectedCenterVX, expectedCenterVY := world.windVector(float64(world.w)*0.5, float64(world.h)*0.5, world.cfg.Seed)
-	vx, vy = world.WindVectorSample()
-	if math.Abs(vx-expectedCenterVX) > 1e-6 || math.Abs(vy-expectedCenterVY) > 1e-6 {
-		t.Fatalf("expected fallback wind vector (%.4f, %.4f), got (%.4f, %.4f)", expectedCenterVX, expectedCenterVY, vx, vy)
-	}
-}
-
 type rainTelemetry struct {
 	LavaMean          float64
 	LavaMax           int
@@ -678,4 +647,44 @@ type rainTelemetry struct {
 	RainCoverageMean  float64
 	VegetationMean    float64
 	ActiveRainRegions float64
+}
+
+func TestWindVectorAtZeroNoiseScale(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Params.WindNoiseScale = 0
+	cfg.Params.WindSpeedScale = 0.8
+
+	world := NewWithConfig(cfg)
+
+	vx, vy := world.WindVectorAt(10.5, 12.5)
+	if vx != 0 || vy != 0 {
+		t.Fatalf("expected calm wind when noise scale is zero, got (%0.4f,%0.4f)", vx, vy)
+	}
+}
+
+func TestWindVectorAtDeterministicAndBounded(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Seed = 1357
+	cfg.Params.WindNoiseScale = 0.018
+	cfg.Params.WindSpeedScale = 1.2
+
+	world := NewWithConfig(cfg)
+
+	vx1, vy1 := world.WindVectorAt(24.5, 18.5)
+	vx2, vy2 := world.WindVectorAt(24.5, 18.5)
+	if vx1 != vx2 || vy1 != vy2 {
+		t.Fatalf("expected deterministic sample, got (%0.4f,%0.4f) vs (%0.4f,%0.4f)", vx1, vy1, vx2, vy2)
+	}
+
+	vxOther, vyOther := world.WindVectorAt(56.5, 18.5)
+	delta := math.Hypot(vx1-vxOther, vy1-vyOther)
+	if delta < 1e-4 {
+		t.Fatalf("expected spatial variation in wind vector, delta=%0.6f", delta)
+	}
+
+	speed := math.Hypot(vx1, vy1)
+	maxAllowed := cfg.Params.WindSpeedScale * 0.75
+	if speed > maxAllowed {
+		t.Fatalf("expected speed <= %0.3f, got %0.3f", maxAllowed, speed)
+	}
 }

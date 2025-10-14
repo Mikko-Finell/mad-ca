@@ -54,11 +54,6 @@ type ParameterControlsProvider interface {
 	ParameterControls() []ParameterControl
 }
 
-// WindVectorProvider exposes the aggregated wind vector used for HUD overlays.
-type WindVectorProvider interface {
-	WindVectorSample() (float64, float64)
-}
-
 // IntParameterSetter allows HUD interactions to update integer parameters.
 type IntParameterSetter interface {
 	SetIntParameter(key string, value int) bool
