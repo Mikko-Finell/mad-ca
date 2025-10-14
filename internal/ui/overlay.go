@@ -17,6 +17,10 @@ type maskProvider interface {
 	VolcanoMask() []float32
 }
 
+type elevationProvider interface {
+	LavaElevation() []int16
+}
+
 type windFieldProvider interface {
 	WindVectorAt(x, y float64) (float64, float64)
 }
@@ -28,6 +32,7 @@ type Overlay struct {
 	showRain    bool
 	showVolcano bool
 	showWind    bool
+	showElev    bool
 	maskImg     *ebiten.Image
 	maskBuf     []byte
 
@@ -65,6 +70,9 @@ func (o *Overlay) Update() {
 	if inpututil.IsKeyJustPressed(ebiten.KeyDigit3) {
 		o.showWind = !o.showWind
 	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyDigit4) {
+		o.showElev = !o.showElev
+	}
 }
 
 // Draw renders the overlay onto the provided screen.
@@ -84,16 +92,16 @@ func (o *Overlay) Draw(screen *ebiten.Image) {
 		}
 	}
 
+	if o.showElev {
+		if provider, ok := o.sim.(elevationProvider); ok {
+			o.drawElevation(screen, provider.LavaElevation(), size, scale)
+		}
+	}
+
 	if provider, ok := o.sim.(maskProvider); ok {
 		total := size.W * size.H
 		if total == 0 {
 			return
-		}
-		if o.maskImg == nil || o.maskImg.Bounds().Dx() != size.W || o.maskImg.Bounds().Dy() != size.H {
-			o.maskImg = ebiten.NewImage(size.W, size.H)
-			o.maskBuf = make([]byte, 4*total)
-		} else if len(o.maskBuf) != 4*total {
-			o.maskBuf = make([]byte, 4*total)
 		}
 
 		if o.showRain {
@@ -287,10 +295,55 @@ func (o *Overlay) drawLine(screen *ebiten.Image, x1, y1, x2, y2, thickness float
 	screen.DrawImage(o.pixel, op)
 }
 
+func (o *Overlay) drawElevation(screen *ebiten.Image, elevation []int16, size core.Size, scale int) {
+	total := size.W * size.H
+	if len(elevation) != total || total == 0 {
+		return
+	}
+	if !o.ensureOverlayBuffer(size) {
+		return
+	}
+
+	minVal := elevation[0]
+	maxVal := elevation[0]
+	for _, v := range elevation[1:] {
+		if v < minVal {
+			minVal = v
+		}
+		if v > maxVal {
+			maxVal = v
+		}
+	}
+	if maxVal == minVal {
+		return
+	}
+
+	span := float64(maxVal - minVal)
+	for i := 0; i < total; i++ {
+		base := i * 4
+		norm := (float64(elevation[i]-minVal) / span)
+		col := elevationColor(norm)
+		o.maskBuf[base+0] = col.R
+		o.maskBuf[base+1] = col.G
+		o.maskBuf[base+2] = col.B
+		o.maskBuf[base+3] = col.A
+	}
+	o.maskImg.ReplacePixels(o.maskBuf)
+	op := &ebiten.DrawImageOptions{}
+	if scale <= 0 {
+		scale = 1
+	}
+	op.GeoM.Scale(float64(scale), float64(scale))
+	screen.DrawImage(o.maskImg, op)
+}
+
 func (o *Overlay) drawMask(screen *ebiten.Image, mask []float32, tint color.RGBA) {
 	size := o.sim.Size()
 	total := size.W * size.H
 	if len(mask) != total {
+		return
+	}
+	if !o.ensureOverlayBuffer(size) {
 		return
 	}
 	const (
@@ -363,4 +416,44 @@ func scaleColorComponent(value uint8, factor float64) uint8 {
 		return 255
 	}
 	return uint8(scaled)
+}
+
+func (o *Overlay) ensureOverlayBuffer(size core.Size) bool {
+	total := size.W * size.H
+	if total <= 0 {
+		return false
+	}
+	if o.maskImg == nil || o.maskImg.Bounds().Dx() != size.W || o.maskImg.Bounds().Dy() != size.H {
+		o.maskImg = ebiten.NewImage(size.W, size.H)
+		o.maskBuf = make([]byte, 4*total)
+	} else if len(o.maskBuf) != 4*total {
+		o.maskBuf = make([]byte, 4*total)
+	}
+	return o.maskImg != nil && len(o.maskBuf) == 4*total
+}
+
+func elevationColor(norm float64) color.RGBA {
+	norm = clamp01(norm)
+	low := color.RGBA{R: 50, G: 90, B: 170, A: 0}
+	mid := color.RGBA{R: 140, G: 100, B: 60, A: 0}
+	high := color.RGBA{R: 240, G: 236, B: 220, A: 0}
+	var base color.RGBA
+	if norm < 0.5 {
+		base = lerpRGBA(low, mid, norm*2)
+	} else {
+		base = lerpRGBA(mid, high, (norm-0.5)*2)
+	}
+	alpha := uint8(math.Round(100 + 120*norm))
+	base.A = alpha
+	return base
+}
+
+func lerpRGBA(a, b color.RGBA, t float64) color.RGBA {
+	t = clamp01(t)
+	return color.RGBA{
+		R: uint8(math.Round(float64(a.R) + (float64(b.R)-float64(a.R))*t)),
+		G: uint8(math.Round(float64(a.G) + (float64(b.G)-float64(a.G))*t)),
+		B: uint8(math.Round(float64(a.B) + (float64(b.B)-float64(a.B))*t)),
+		A: uint8(math.Round(float64(a.A) + (float64(b.A)-float64(a.A))*t)),
+	}
 }

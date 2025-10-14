@@ -22,6 +22,7 @@ func TestResetDeterministic(t *testing.T) {
 	initialVegetation := append([]Vegetation(nil), world.Vegetation()...)
 	initialRain := append([]float32(nil), world.RainMask()...)
 	initialVolcano := append([]float32(nil), world.VolcanoMask()...)
+	initialElevation := append([]int16(nil), world.LavaElevation()...)
 	initialCells := append([]uint8(nil), world.Cells()...)
 
 	if len(initialGround) == 0 {
@@ -35,7 +36,8 @@ func TestResetDeterministic(t *testing.T) {
 	veg[1] = VegetationTree
 	world.RainMask()[2] = 1
 	world.VolcanoMask()[3] = 1
-	world.Cells()[4] = 42
+	world.LavaElevation()[4] = 12
+	world.Cells()[5] = 42
 
 	world.Reset(0)
 
@@ -51,6 +53,9 @@ func TestResetDeterministic(t *testing.T) {
 	if !slices.Equal(initialVolcano, world.VolcanoMask()) {
 		t.Fatal("Reset with config seed not deterministic for volcano mask")
 	}
+	if !slices.Equal(initialElevation, world.LavaElevation()) {
+		t.Fatal("Reset with config seed not deterministic for lava elevation")
+	}
 	if !slices.Equal(initialCells, world.Cells()) {
 		t.Fatal("Reset with config seed not deterministic for display buffer")
 	}
@@ -61,6 +66,7 @@ func TestResetDeterministic(t *testing.T) {
 	seedVegetation := append([]Vegetation(nil), world.Vegetation()...)
 	seedRain := append([]float32(nil), world.RainMask()...)
 	seedVolcano := append([]float32(nil), world.VolcanoMask()...)
+	seedElevation := append([]int16(nil), world.LavaElevation()...)
 	seedCells := append([]uint8(nil), world.Cells()...)
 
 	world.Reset(777)
@@ -76,6 +82,9 @@ func TestResetDeterministic(t *testing.T) {
 	}
 	if !slices.Equal(seedVolcano, world.VolcanoMask()) {
 		t.Fatal("Reset with explicit seed not deterministic for volcano mask")
+	}
+	if !slices.Equal(seedElevation, world.LavaElevation()) {
+		t.Fatal("Reset with explicit seed not deterministic for lava elevation")
 	}
 	if !slices.Equal(seedCells, world.Cells()) {
 		t.Fatal("Reset with explicit seed not deterministic for display buffer")

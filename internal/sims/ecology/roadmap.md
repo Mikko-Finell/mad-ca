@@ -125,6 +125,7 @@
 * Latest crater rebuild pass carves 1–3 random spillway openings whose floor matches the reservoir head so vents keep feeding once the starter pool drains along those exits.
 * HUD cleanup removed the redundant “Ecology Controls” banner and now surfaces direct adjustments for lava cooling, flux reference, reservoir head, and proto strength/uplift so lava longevity and volcano shaping can be tuned live.
 * Shift-clicking the map now drops a proto-volcano at the cursor, giving tuning sessions a deterministic way to raise cones without waiting for random spawns.
+* Added a debug overlay (toggle `4`) that visualises the lava elevation raster so spillways and routing carve-outs are easy to inspect while tuning eruptions.
 
 ---
 
