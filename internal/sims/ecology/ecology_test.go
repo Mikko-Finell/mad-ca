@@ -90,14 +90,14 @@ func TestSetFloatParameterVolcanoEruptionChance(t *testing.T) {
 	cfg := DefaultConfig()
 	world := NewWithConfig(cfg)
 
-	if !world.SetFloatParameter("volcano_eruption_chance_base", 0.5) {
+	if !world.SetFloatParameter("volcano_eruption_chance_base", 50) {
 		t.Fatal("expected volcano eruption chance to be adjustable")
 	}
 	if got := world.cfg.Params.VolcanoEruptionChanceBase; math.Abs(got-0.5) > 1e-9 {
 		t.Fatalf("expected eruption chance 0.5, got %f", got)
 	}
 
-	if !world.SetFloatParameter("volcano_eruption_chance_base", 1.5) {
+	if !world.SetFloatParameter("volcano_eruption_chance_base", 150) {
 		t.Fatal("expected setter to clamp values above max")
 	}
 	if got := world.cfg.Params.VolcanoEruptionChanceBase; math.Abs(got-1) > 1e-9 {
