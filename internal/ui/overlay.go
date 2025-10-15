@@ -25,6 +25,10 @@ type elevationFieldProvider interface {
 	ElevationField() []int16
 }
 
+type heatFieldProvider interface {
+	HeatField() []float32
+}
+
 // Overlay draws optional debugging visuals on top of the base simulation.
 type Overlay struct {
 	sim         core.Sim
@@ -33,11 +37,15 @@ type Overlay struct {
 	showVolcano bool
 	showWind    bool
 	showElev    bool
+	showHeat    bool
 	maskImg     *ebiten.Image
 	maskBuf     []byte
 
 	elevationImg *ebiten.Image
 	elevationBuf []byte
+
+	heatImg *ebiten.Image
+	heatBuf []byte
 
 	pixel          *ebiten.Image
 	windSamples    []windSample
@@ -76,6 +84,9 @@ func (o *Overlay) Update() {
 	if inpututil.IsKeyJustPressed(ebiten.KeyDigit4) {
 		o.showElev = !o.showElev
 	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyDigit5) {
+		o.showHeat = !o.showHeat
+	}
 }
 
 // Draw renders the overlay onto the provided screen.
@@ -98,6 +109,12 @@ func (o *Overlay) Draw(screen *ebiten.Image) {
 	if o.showElev {
 		if provider, ok := o.sim.(elevationFieldProvider); ok {
 			o.drawElevation(screen, provider.ElevationField(), size, scale)
+		}
+	}
+
+	if o.showHeat {
+		if provider, ok := o.sim.(heatFieldProvider); ok {
+			o.drawHeat(screen, provider.HeatField(), size, scale)
 		}
 	}
 
@@ -352,6 +369,49 @@ func (o *Overlay) drawMask(screen *ebiten.Image, mask []float32, tint color.RGBA
 	screen.DrawImage(o.maskImg, op)
 }
 
+func (o *Overlay) drawHeat(screen *ebiten.Image, field []float32, size core.Size, scale int) {
+	total := size.W * size.H
+	if len(field) != total || total == 0 {
+		return
+	}
+	if o.heatImg == nil || o.heatImg.Bounds().Dx() != size.W || o.heatImg.Bounds().Dy() != size.H {
+		o.heatImg = ebiten.NewImage(size.W, size.H)
+		o.heatBuf = make([]byte, 4*total)
+	} else if len(o.heatBuf) != 4*total {
+		o.heatBuf = make([]byte, 4*total)
+	}
+
+	const alphaScale = 220.0
+	const alphaGamma = 0.6
+
+	for i := 0; i < total; i++ {
+		base := i * 4
+		intensity := clamp01(float64(field[i]))
+		if intensity <= 0 {
+			o.heatBuf[base+0] = 0
+			o.heatBuf[base+1] = 0
+			o.heatBuf[base+2] = 0
+			o.heatBuf[base+3] = 0
+			continue
+		}
+
+		col := heatColor(intensity)
+		alpha := uint8(math.Round(alphaScale * math.Pow(intensity, alphaGamma)))
+		o.heatBuf[base+0] = col.R
+		o.heatBuf[base+1] = col.G
+		o.heatBuf[base+2] = col.B
+		o.heatBuf[base+3] = alpha
+	}
+
+	o.heatImg.ReplacePixels(o.heatBuf)
+	op := &ebiten.DrawImageOptions{}
+	if scale <= 0 {
+		scale = 1
+	}
+	op.GeoM.Scale(float64(scale), float64(scale))
+	screen.DrawImage(o.heatImg, op)
+}
+
 func (o *Overlay) drawElevation(screen *ebiten.Image, field []int16, size core.Size, scale int) {
 	total := size.W * size.H
 	if len(field) != total || total == 0 {
@@ -479,6 +539,33 @@ func elevationColor(t float64) color.RGBA {
 		{0.5, color.RGBA{R: 90, G: 150, B: 100, A: 185}},
 		{0.75, color.RGBA{R: 190, G: 160, B: 80, A: 205}},
 		{1.0, color.RGBA{R: 240, G: 235, B: 215, A: 215}},
+	}
+	for i := 1; i < len(stops); i++ {
+		curr := stops[i]
+		if t <= curr.t {
+			prev := stops[i-1]
+			span := curr.t - prev.t
+			var local float64
+			if span > 0 {
+				local = (t - prev.t) / span
+			}
+			return lerpRGBA(prev.col, curr.col, clamp01(local))
+		}
+	}
+	return stops[len(stops)-1].col
+}
+
+func heatColor(t float64) color.RGBA {
+	t = clamp01(t)
+	stops := []struct {
+		t   float64
+		col color.RGBA
+	}{
+		{0.0, color.RGBA{R: 30, G: 0, B: 40, A: 0}},
+		{0.3, color.RGBA{R: 110, G: 20, B: 80, A: 0}},
+		{0.55, color.RGBA{R: 200, G: 60, B: 35, A: 0}},
+		{0.8, color.RGBA{R: 255, G: 140, B: 30, A: 0}},
+		{1.0, color.RGBA{R: 255, G: 235, B: 200, A: 0}},
 	}
 	for i := 1; i < len(stops); i++ {
 		curr := stops[i]
