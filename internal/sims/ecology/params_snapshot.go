@@ -33,6 +33,8 @@ func (w *World) Parameters() core.ParameterSnapshot {
 				floatParam("lava_spread_chance", "Lava spread chance", params.LavaSpreadChance),
 				floatParam("lava_spread_mask_floor", "Lava spread mask floor", params.LavaSpreadMaskFloor),
 				floatParam("lava_flux_ref", "Lava flux reference", params.LavaFluxRef),
+				floatParam("lava_flow_threshold", "Lava flow threshold", params.LavaFlowThreshold),
+				floatParam("lava_slope_multiplier", "Lava slope multiplier", params.LavaSlopeMultiplier),
 				floatParam("lava_cool_base", "Lava base cooling", params.LavaCoolBase),
 				floatParam("lava_cool_rain", "Lava rain cooling", params.LavaCoolRain),
 				floatParam("lava_cool_edge", "Lava edge cooling", params.LavaCoolEdge),

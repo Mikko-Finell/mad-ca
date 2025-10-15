@@ -13,6 +13,8 @@ type Params struct {
 	LavaSpreadChance    float64
 	LavaSpreadMaskFloor float64
 	LavaFluxRef         float64
+	LavaFlowThreshold   float64
+	LavaSlopeMultiplier float64
 	LavaCoolBase        float64
 	LavaCoolRain        float64
 	LavaCoolEdge        float64
@@ -86,20 +88,22 @@ func DefaultConfig() Config {
 			GrassPatchRadiusMin:           2,
 			GrassPatchRadiusMax:           5,
 			GrassPatchDensity:             0.6,
-			LavaSpreadChance:              0.08,
-			LavaSpreadMaskFloor:           0.2,
-			LavaFluxRef:                   2,
-			LavaCoolBase:                  0.02,
+			LavaSpreadChance:              0.78,
+			LavaSpreadMaskFloor:           0.85,
+			LavaFluxRef:                   12,
+			LavaFlowThreshold:             -0.05,
+			LavaSlopeMultiplier:           150.0,
+			LavaCoolBase:                  0.0005,
 			LavaCoolRain:                  0.08,
-			LavaCoolEdge:                  0.03,
-			LavaCoolThick:                 0.02,
-			LavaCoolFlux:                  0.02,
-			LavaPhaseThreshold:            0.15,
-			LavaPhaseHysteresis:           0.03,
-			LavaReservoirMin:              120,
-			LavaReservoirMax:              220,
-			LavaReservoirGain:             0.8,
-			LavaReservoirHead:             3.5,
+			LavaCoolEdge:                  0.0015,
+			LavaCoolThick:                 0.0015,
+			LavaCoolFlux:                  0.0004,
+			LavaPhaseThreshold:            0.03,
+			LavaPhaseHysteresis:           0.01,
+			LavaReservoirMin:              860,
+			LavaReservoirMax:              1340,
+			LavaReservoirGain:             14.0,
+			LavaReservoirHead:             25.0,
 			BurnTTL:                       3,
 			FireSpreadChance:              0.25,
 			FireLavaIgniteChance:          0.8,
@@ -205,6 +209,16 @@ func FromMap(cfg map[string]string) Config {
 	if v, ok := cfg["lava_flux_ref"]; ok {
 		if parsed, err := strconv.ParseFloat(v, 64); err == nil && parsed > 0 {
 			c.Params.LavaFluxRef = parsed
+		}
+	}
+	if v, ok := cfg["lava_flow_threshold"]; ok {
+		if parsed, err := strconv.ParseFloat(v, 64); err == nil {
+			c.Params.LavaFlowThreshold = parsed
+		}
+	}
+	if v, ok := cfg["lava_slope_multiplier"]; ok {
+		if parsed, err := strconv.ParseFloat(v, 64); err == nil && parsed > 0 {
+			c.Params.LavaSlopeMultiplier = parsed
 		}
 	}
 	if v, ok := cfg["lava_cool_base"]; ok {
