@@ -165,23 +165,23 @@ type lavaCandidate struct {
 }
 
 const (
-	lavaMaxHeight          = 7
-	lavaFlowThreshold      = 0.9
-	lavaSplitThresholdDrop = 0.15
-	lavaSplitMinHeight     = 3
-	lavaSplitChance        = 0.25
-	lavaOverflowHeight     = 4
-	lavaBaseSpeed          = 0.9
-	lavaSpeedAlpha         = 0.3
-	lavaTipTemperatureMin  = 0.12
-	lavaReheatCap          = 0.35
-	lavaSlopeWeight        = 1.0
-	lavaAlignWeight        = 0.6
-	lavaChannelWeight      = 0.8
-	lavaRainWeight         = 0.5
-	lavaWallWeight         = 2.0
-	lavaChannelGrow        = 0.15
-	lavaChannelDecay       = 0.005
+	lavaMaxHeight            = 7
+	lavaFlowThresholdDefault = 0.9
+	lavaSplitThresholdDrop   = 0.15
+	lavaSplitMinHeight       = 3
+	lavaSplitChance          = 0.25
+	lavaOverflowHeight       = 4
+	lavaBaseSpeed            = 0.9
+	lavaSpeedAlpha           = 0.3
+	lavaTipTemperatureMin    = 0.12
+	lavaReheatCap            = 0.35
+	lavaSlopeWeight          = 6.0
+	lavaAlignWeight          = 0.2
+	lavaChannelWeight        = 0.5
+	lavaRainWeight           = 0.5
+	lavaWallWeight           = 0
+	lavaChannelGrow          = 0.15
+	lavaChannelDecay         = 0.005
 )
 
 var lavaDirections = [...]lavaDirection{
@@ -375,13 +375,18 @@ func (w *World) buildLavaElevation(region volcanoProtoRegion) {
 		headLevel = 0
 	}
 	slopeScale := float64(20 + w.rng.Intn(21))
-	if slopeScale <= 0 {
-		slopeScale = 20
+	slopeMultiplier := w.cfg.Params.LavaSlopeMultiplier
+	if slopeMultiplier <= 0 {
+		slopeMultiplier = 1
+	}
+	slopeScale /= slopeMultiplier
+	if slopeScale < 0.1 {
+		slopeScale = 0.1
 	}
 	cx := region.cx
 	cy := region.cy
 	radius := math.Max(region.radius, 0)
-	effectRadius := radius + 2*radius
+	effectRadius := radius + 4*radius
 	minX := int(math.Max(0, math.Floor(cx-effectRadius)))
 	maxX := int(math.Min(float64(w.w-1), math.Ceil(cx+effectRadius)))
 	minY := int(math.Max(0, math.Floor(cy-effectRadius)))
@@ -415,13 +420,24 @@ func (w *World) buildLavaElevation(region volcanoProtoRegion) {
 			angle := math.Atan2(dy, dx)
 			slope := int16(math.Round(dist / slopeScale))
 			elev := base + noise - slope
+			if inOpening(angle) {
+				remaining := region.radius - dist
+				if remaining < 0 {
+					remaining = 0
+				}
+				extraDrop := int16(math.Round(remaining * 3.0))
+				elev -= extraDrop
+			}
 			if dist <= region.radius*1.2 && inOpening(angle) {
 				if elev > headLevel {
 					elev = headLevel
 				}
 			}
-			if idx < len(w.lavaElevation) && elev > w.lavaElevation[idx] {
-				w.lavaElevation[idx] = elev
+			if idx < len(w.lavaElevation) {
+				current := w.lavaElevation[idx]
+				if elev > current || current <= 0 {
+					w.lavaElevation[idx] = elev
+				}
 			}
 		}
 	}
@@ -2393,7 +2409,7 @@ func (w *World) eruptRegion(region volcanoProtoRegion) {
 		}
 	}
 
-	vents := 1 + w.rng.Intn(3)
+	vents := 2 + w.rng.Intn(2)
 	if vents > len(coreCells) {
 		vents = len(coreCells)
 	}
@@ -2773,7 +2789,7 @@ func (w *World) spawnLavaChild(cand lavaCandidate, temp float32) bool {
 		return false
 	}
 	ground := w.groundCurr[nIdx]
-	if ground != GroundDirt && ground != GroundRock {
+	if ground != GroundDirt && ground != GroundRock && ground != GroundMountain {
 		return false
 	}
 	if temp < 0 {
@@ -2783,7 +2799,7 @@ func (w *World) spawnLavaChild(cand lavaCandidate, temp float32) bool {
 		temp = 1
 	}
 	w.groundNext[nIdx] = GroundLava
-	w.lavaHeightNext[nIdx] = 1
+	w.lavaHeightNext[nIdx] = 4
 	w.lavaTempNext[nIdx] = temp
 	w.lavaDirNext[nIdx] = cand.dir
 	w.lavaForceNext[nIdx] = false
@@ -2849,7 +2865,7 @@ func (w *World) advanceLavaTip(idx int) bool {
 			return
 		}
 		ground := w.groundCurr[nIdx]
-		if ground != GroundDirt && ground != GroundRock {
+		if ground != GroundDirt && ground != GroundRock && ground != GroundMountain {
 			return
 		}
 		for i := 0; i < count; i++ {
@@ -2947,30 +2963,31 @@ func (w *World) advanceLavaTip(idx int) bool {
 	if best < 0 {
 		return false
 	}
-	if candidates[best].score < lavaFlowThreshold {
-		if !(forceAdvance && candidates[best].score >= 0) {
+	flowThreshold := w.cfg.Params.LavaFlowThreshold
+	if flowThreshold <= 0 {
+		flowThreshold = lavaFlowThresholdDefault
+	}
+	if candidates[best].score < flowThreshold {
+		if !forceAdvance {
 			return false
 		}
 	}
 
-	childTemp := temp - 0.05
-	if childTemp < 0 {
-		childTemp = 0
-	}
+	childTemp := temp
 
 	advanced := w.spawnLavaChild(candidates[best], childTemp)
 	if !advanced {
 		return false
 	}
 
-	removed := 1
+	removed := 2
 	newHeight := height - removed
 	if newHeight < 1 {
 		newHeight = 1
 		removed = height - newHeight
 	}
 
-	threshold := lavaFlowThreshold - lavaSplitThresholdDrop
+	threshold := flowThreshold - lavaSplitThresholdDrop
 	if threshold < 0 {
 		threshold = 0
 	}
@@ -3025,7 +3042,7 @@ func (w *World) poolFailedTips() {
 				continue
 			}
 			ground := w.groundCurr[nIdx]
-			if ground != GroundDirt && ground != GroundRock {
+			if ground != GroundDirt && ground != GroundRock && ground != GroundMountain {
 				continue
 			}
 			if nIdx < len(w.lavaElevation) && w.lavaElevation[nIdx] > elevHere {
@@ -3256,7 +3273,7 @@ func (w *World) detectLavaTips() {
 				neighbors++
 			}
 		}
-		w.lavaTipNext[idx] = neighbors <= 2
+		w.lavaTipNext[idx] = neighbors <= 4
 	}
 }
 
