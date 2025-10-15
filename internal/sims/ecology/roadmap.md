@@ -119,6 +119,7 @@
 **Notes:**
 
 * Proto-volcano lifecycle now consumes proto expirations to trigger eruptions that seed lava cores, uplift rims, and clear vegetation. Manual volcano spawns now erupt instantly so debug placements can build a lava field without waiting on proto timers. The lava subsystem now carries thickness/temperature/heading data, advances tips along slopes with channel reinforcement, handles pooling and crusting, and vents maintain core flux. Rain both penalizes forward scoring and boosts cooling, and new tests cover vent seeding, cooling/crusting, channel reinforcement, and lava-driven ignition.
+* Lava flow scoring weights (slope/alignment/channel/rain/wall) are now tunable through the config, HUD snapshot, and tuning CLI so sweeps can explore different river behaviors without source edits.
 * HUD exposes an adjustable volcano eruption base chance so tuning sessions can readily force eruptions when needed.
 * Lava persistence now leans on reservoir-fed vents and flux-aware cooling so crater pools linger while flowing rivers stay molten. The HUD snapshot exposes the new cooling and reservoir parameters for future tuning passes.
 * **Follow-up:** Focus on river shaping—channel-biased flow scoring, smarter overflow spokes, and telemetry for reservoir mass/flux to validate the new persistence model.

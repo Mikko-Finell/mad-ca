@@ -374,9 +374,23 @@ func (w *World) buildLavaElevation(region volcanoProtoRegion) {
 	if headLevel < 0 {
 		headLevel = 0
 	}
-	slopeScale := float64(20 + w.rng.Intn(21))
+	slopeMin := w.cfg.Params.LavaSlopeScaleMin
+	slopeMax := w.cfg.Params.LavaSlopeScaleMax
+	if slopeMin <= 0 {
+		slopeMin = 20
+	}
+	if slopeMax < slopeMin {
+		slopeMax = slopeMin
+	}
+	slopeScale := float64(slopeMin)
+	if slopeMax > slopeMin {
+		slopeScale += w.rng.Float64() * float64(slopeMax-slopeMin)
+	}
 	if slopeScale <= 0 {
-		slopeScale = 20
+		slopeScale = float64(slopeMin)
+		if slopeScale <= 0 {
+			slopeScale = 20
+		}
 	}
 	cx := region.cx
 	cy := region.cy
@@ -2839,6 +2853,27 @@ func (w *World) advanceLavaTip(idx int) bool {
 	y := idx / w.w
 	elevHere := w.lavaElevation[idx]
 
+	slopeWeight := w.cfg.Params.LavaSlopeWeight
+	if slopeWeight == 0 {
+		slopeWeight = lavaSlopeWeight
+	}
+	alignWeight := w.cfg.Params.LavaAlignWeight
+	if alignWeight == 0 {
+		alignWeight = lavaAlignWeight
+	}
+	channelWeight := w.cfg.Params.LavaChannelWeight
+	if channelWeight == 0 {
+		channelWeight = lavaChannelWeight
+	}
+	rainWeight := w.cfg.Params.LavaRainWeight
+	if rainWeight == 0 {
+		rainWeight = lavaRainWeight
+	}
+	wallWeight := w.cfg.Params.LavaWallWeight
+	if wallWeight == 0 {
+		wallWeight = lavaWallWeight
+	}
+
 	var candidates [8]lavaCandidate
 	count := 0
 	addCandidate := func(nIdx int, dirIdx int8) {
@@ -2883,7 +2918,7 @@ func (w *World) advanceLavaTip(idx int) bool {
 				wall = float64(diff)
 			}
 		}
-		score := lavaSlopeWeight*slope + lavaAlignWeight*align + lavaChannelWeight*channel - lavaRainWeight*rain - lavaWallWeight*wall
+		score := slopeWeight*slope + alignWeight*align + channelWeight*channel - rainWeight*rain - wallWeight*wall
 		candidates[count] = lavaCandidate{idx: nIdx, dir: dirIdx, score: score}
 		count++
 	}
@@ -2947,7 +2982,11 @@ func (w *World) advanceLavaTip(idx int) bool {
 	if best < 0 {
 		return false
 	}
-	if candidates[best].score < lavaFlowThreshold {
+	flowThreshold := w.cfg.Params.LavaFlowThreshold
+	if flowThreshold <= 0 {
+		flowThreshold = lavaFlowThreshold
+	}
+	if candidates[best].score < flowThreshold {
 		if !(forceAdvance && candidates[best].score >= 0) {
 			return false
 		}
@@ -2970,7 +3009,7 @@ func (w *World) advanceLavaTip(idx int) bool {
 		removed = height - newHeight
 	}
 
-	threshold := lavaFlowThreshold - lavaSplitThresholdDrop
+	threshold := flowThreshold - lavaSplitThresholdDrop
 	if threshold < 0 {
 		threshold = 0
 	}
