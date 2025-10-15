@@ -177,6 +177,11 @@ func TestLavaCoolingCrustsAndSolidifies(t *testing.T) {
 	cfg.Width = 1
 	cfg.Height = 1
 	cfg.Params.GrassPatchCount = 0
+	cfg.Params.LavaCoolBase = 0.05
+	cfg.Params.LavaCoolEdge = 0
+	cfg.Params.LavaCoolThick = 0
+	cfg.Params.LavaCoolFlux = 0
+	cfg.Params.LavaCoolRain = 0
 
 	world := NewWithConfig(cfg)
 	world.Reset(0)
@@ -208,6 +213,11 @@ func TestRainAcceleratesLavaCooling(t *testing.T) {
 	cfg.Width = 1
 	cfg.Height = 1
 	cfg.Params.GrassPatchCount = 0
+	cfg.Params.LavaCoolBase = 0.04
+	cfg.Params.LavaCoolEdge = 0
+	cfg.Params.LavaCoolThick = 0
+	cfg.Params.LavaCoolFlux = 0
+	cfg.Params.LavaCoolRain = 0.05
 
 	dry := NewWithConfig(cfg)
 	dry.Reset(0)
