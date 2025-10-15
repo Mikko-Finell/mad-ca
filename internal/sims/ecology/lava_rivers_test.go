@@ -71,6 +71,66 @@ func TestEruptionSeedsLavaRivers(t *testing.T) {
 	}
 }
 
+func TestEruptionPreservesRemoteLava(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Width = 16
+	cfg.Height = 8
+	cfg.Params.GrassPatchCount = 0
+	cfg.Params.VolcanoProtoSpawnChance = 0
+
+	world := NewWithConfig(cfg)
+	world.Reset(0)
+
+	for i := range world.groundCurr {
+		world.groundCurr[i] = GroundRock
+		world.display[i] = uint8(GroundRock)
+	}
+
+	// Seed an existing lava cell with an active vent far from the next eruption.
+	existingIdx := 1*world.w + 1
+	world.setLavaCell(existingIdx, 3, 1, -1, false)
+	world.lavaChannel[existingIdx] = 0.6
+	world.lavaVents = append(world.lavaVents, lavaVent{
+		idx:           existingIdx,
+		dir:           -1,
+		outIdx:        existingIdx,
+		massRemaining: 40,
+		head:          world.cfg.Params.LavaReservoirHead,
+	})
+
+	region := volcanoProtoRegion{
+		cx:       float64(world.w) - 2.5,
+		cy:       float64(world.h) - 2.5,
+		radius:   3,
+		strength: 1,
+		ttl:      0,
+	}
+
+	world.eruptRegion(region)
+
+	if world.groundCurr[existingIdx] != GroundLava {
+		t.Fatalf("existing lava cell should remain active, got %v", world.groundCurr[existingIdx])
+	}
+	if channel := world.lavaChannel[existingIdx]; math.Abs(float64(channel)-0.6) > 1e-6 {
+		t.Fatalf("expected lava channel memory to remain, got %.3f", channel)
+	}
+
+	preserved := false
+	for _, vent := range world.lavaVents {
+		if vent.idx == existingIdx {
+			preserved = true
+			break
+		}
+	}
+	if !preserved {
+		t.Fatal("existing lava vent should not be cleared by remote eruption")
+	}
+
+	if len(world.lavaVents) <= 1 {
+		t.Fatal("eruption should add new lava vents while keeping existing ones")
+	}
+}
+
 func TestLavaReservoirDepletesVent(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Width = 1
