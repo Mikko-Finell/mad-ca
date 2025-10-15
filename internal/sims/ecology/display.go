@@ -1,6 +1,9 @@
 package ecology
 
-import "image/color"
+import (
+	"image/color"
+	"math"
+)
 
 const (
 	displayGroundMask      = 0x03
@@ -107,6 +110,20 @@ func encodeDisplayValue(ground Ground, veg Vegetation, burning bool) uint8 {
 
 func (w *World) rebuildDisplay() {
 	total := len(w.display)
+	if total == 0 {
+		w.heatField = w.heatField[:0]
+		return
+	}
+	if len(w.heatField) != total {
+		w.heatField = make([]float32, total)
+	}
+
+	burnSpan := w.cfg.Params.BurnTTL
+	if burnSpan <= 0 {
+		burnSpan = 1
+	}
+	invBurnSpan := 1.0 / float64(burnSpan)
+
 	for i := 0; i < total; i++ {
 		var ground Ground
 		if i < len(w.groundCurr) {
@@ -121,5 +138,46 @@ func (w *World) rebuildDisplay() {
 			burning = w.burnTTL[i] > 0
 		}
 		w.display[i] = encodeDisplayValue(ground, veg, burning)
+
+		lavaTemp := float64(0)
+		if i < len(w.lavaTemp) {
+			lavaTemp = float64(w.lavaTemp[i])
+		}
+		lavaHeight := uint8(0)
+		if i < len(w.lavaHeight) {
+			lavaHeight = w.lavaHeight[i]
+		}
+		burnTTL := uint8(0)
+		if i < len(w.burnTTL) {
+			burnTTL = w.burnTTL[i]
+		}
+		w.heatField[i] = float32(computeHeatIntensity(lavaTemp, lavaHeight, burnTTL, invBurnSpan))
 	}
+}
+
+func computeHeatIntensity(lavaTemp float64, lavaHeight uint8, burnTTL uint8, invBurnSpan float64) float64 {
+	lavaComponent := clampFloat(lavaTemp, 0, 1)
+	if lavaHeight > 0 {
+		heightNorm := float64(lavaHeight) / float64(lavaMaxHeight)
+		// Blend temperature and column thickness so tall flows stay vivid even as they cool.
+		blended := lavaComponent*0.65 + heightNorm*0.35
+		if blended < heightNorm {
+			blended = heightNorm
+		}
+		lavaComponent = clampFloat(blended, 0, 1)
+	} else {
+		lavaComponent = clampFloat(lavaComponent*0.85, 0, 1)
+	}
+
+	fireComponent := 0.0
+	if burnTTL > 0 {
+		ratio := clampFloat(float64(burnTTL)*invBurnSpan, 0, 1)
+		fireComponent = 0.55 + 0.45*math.Sqrt(ratio)
+	}
+
+	heat := math.Max(lavaComponent, fireComponent)
+	if heat < 1e-3 {
+		return 0
+	}
+	return clampFloat(heat, 0, 1)
 }

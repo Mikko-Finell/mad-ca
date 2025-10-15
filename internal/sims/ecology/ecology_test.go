@@ -551,6 +551,39 @@ func TestRebuildDisplayEncodesVegetationAndBurning(t *testing.T) {
 	}
 }
 
+func TestHeatFieldCapturesLavaAndFire(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Width = 3
+	cfg.Height = 1
+	cfg.Params.GrassPatchCount = 0
+	cfg.Params.BurnTTL = 4
+
+	world := NewWithConfig(cfg)
+	world.Reset(0)
+
+	world.groundCurr[0] = GroundLava
+	world.lavaTemp[0] = 1
+	world.lavaHeight[0] = 4
+
+	world.burnTTL[1] = uint8(cfg.Params.BurnTTL)
+
+	world.rebuildDisplay()
+
+	heat := world.HeatField()
+	if len(heat) != 3 {
+		t.Fatalf("expected heat field to match world size, got %d entries", len(heat))
+	}
+	if heat[0] <= 0.8 {
+		t.Fatalf("expected lava cell to report strong heat, got %.3f", heat[0])
+	}
+	if heat[1] <= 0.9 {
+		t.Fatalf("expected burning vegetation to report intense heat, got %.3f", heat[1])
+	}
+	if heat[2] != 0 {
+		t.Fatalf("expected untouched cell to remain cool, got %.3f", heat[2])
+	}
+}
+
 func TestPaletteProvidesDistinctEntries(t *testing.T) {
 	world := NewWithConfig(DefaultConfig())
 	palette := world.Palette()

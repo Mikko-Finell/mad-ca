@@ -60,6 +60,7 @@ type World struct {
 	volNext        []float32
 	tectonic       []float32
 	display        []uint8
+	heatField      []float32
 
 	rng *rand.Rand
 
@@ -893,6 +894,7 @@ func NewWithConfig(cfg Config) *World {
 		volNext:        make([]float32, total),
 		tectonic:       loadTectonicMap(cfg.Width, cfg.Height),
 		display:        make([]uint8, total),
+		heatField:      make([]float32, total),
 		rng:            rand.New(rand.NewSource(cfg.Seed)),
 	}
 	return w
@@ -921,6 +923,9 @@ func (w *World) VolcanoMask() []float32 { return w.volCurr }
 
 // ElevationField exposes the pseudo-elevation raster used for lava flow routing.
 func (w *World) ElevationField() []int16 { return w.lavaElevation }
+
+// HeatField exposes the composite lava/fire heat overlay intensity map.
+func (w *World) HeatField() []float32 { return w.heatField }
 
 // WindVectorAt samples the prevailing wind vector at the provided world
 // coordinate. The coordinate is expressed in cell units where integer values
