@@ -18,6 +18,14 @@ type Params struct {
 	LavaCoolEdge        float64
 	LavaCoolThick       float64
 	LavaCoolFlux        float64
+	LavaSlopeScaleMin   int
+	LavaSlopeScaleMax   int
+	LavaFlowThreshold   float64
+	LavaSlopeWeight     float64
+	LavaAlignWeight     float64
+	LavaChannelWeight   float64
+	LavaRainWeight      float64
+	LavaWallWeight      float64
 	LavaPhaseThreshold  float64
 	LavaPhaseHysteresis float64
 	LavaReservoirMin    int
@@ -94,6 +102,14 @@ func DefaultConfig() Config {
 			LavaCoolEdge:                  0.03,
 			LavaCoolThick:                 0.02,
 			LavaCoolFlux:                  0.02,
+			LavaSlopeScaleMin:             20,
+			LavaSlopeScaleMax:             40,
+			LavaFlowThreshold:             0.9,
+			LavaSlopeWeight:               1.0,
+			LavaAlignWeight:               0.6,
+			LavaChannelWeight:             0.8,
+			LavaRainWeight:                0.5,
+			LavaWallWeight:                2.0,
 			LavaPhaseThreshold:            0.15,
 			LavaPhaseHysteresis:           0.03,
 			LavaReservoirMin:              120,
@@ -230,6 +246,49 @@ func FromMap(cfg map[string]string) Config {
 	if v, ok := cfg["lava_cool_flux"]; ok {
 		if parsed, err := strconv.ParseFloat(v, 64); err == nil && parsed >= 0 {
 			c.Params.LavaCoolFlux = parsed
+		}
+	}
+	if v, ok := cfg["lava_slope_scale_min"]; ok {
+		if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 {
+			c.Params.LavaSlopeScaleMin = parsed
+		}
+	}
+	if v, ok := cfg["lava_slope_scale_max"]; ok {
+		if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 {
+			c.Params.LavaSlopeScaleMax = parsed
+		}
+	}
+	if c.Params.LavaSlopeScaleMax < c.Params.LavaSlopeScaleMin {
+		c.Params.LavaSlopeScaleMax = c.Params.LavaSlopeScaleMin
+	}
+	if v, ok := cfg["lava_slope_weight"]; ok {
+		if parsed, err := strconv.ParseFloat(v, 64); err == nil {
+			c.Params.LavaSlopeWeight = parsed
+		}
+	}
+	if v, ok := cfg["lava_align_weight"]; ok {
+		if parsed, err := strconv.ParseFloat(v, 64); err == nil {
+			c.Params.LavaAlignWeight = parsed
+		}
+	}
+	if v, ok := cfg["lava_channel_weight"]; ok {
+		if parsed, err := strconv.ParseFloat(v, 64); err == nil {
+			c.Params.LavaChannelWeight = parsed
+		}
+	}
+	if v, ok := cfg["lava_rain_weight"]; ok {
+		if parsed, err := strconv.ParseFloat(v, 64); err == nil {
+			c.Params.LavaRainWeight = parsed
+		}
+	}
+	if v, ok := cfg["lava_wall_weight"]; ok {
+		if parsed, err := strconv.ParseFloat(v, 64); err == nil {
+			c.Params.LavaWallWeight = parsed
+		}
+	}
+	if v, ok := cfg["lava_flow_threshold"]; ok {
+		if parsed, err := strconv.ParseFloat(v, 64); err == nil {
+			c.Params.LavaFlowThreshold = parsed
 		}
 	}
 	if v, ok := cfg["lava_phase_threshold"]; ok {
