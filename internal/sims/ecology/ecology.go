@@ -166,7 +166,7 @@ type lavaCandidate struct {
 
 const (
 	lavaMaxHeight          = 7
-	lavaFlowThreshold      = 0.9
+	lavaFlowThreshold      = 0.02
 	lavaSplitThresholdDrop = 0.15
 	lavaSplitMinHeight     = 3
 	lavaSplitChance        = 0.25
@@ -374,9 +374,9 @@ func (w *World) buildLavaElevation(region volcanoProtoRegion) {
 	if headLevel < 0 {
 		headLevel = 0
 	}
-	slopeScale := float64(20 + w.rng.Intn(21))
+	slopeScale := 0.4 + w.rng.Float64()*0.3
 	if slopeScale <= 0 {
-		slopeScale = 20
+		slopeScale = 1
 	}
 	cx := region.cx
 	cy := region.cy
@@ -413,15 +413,18 @@ func (w *World) buildLavaElevation(region volcanoProtoRegion) {
 				noise = int16(w.lavaNoise[idx])
 			}
 			angle := math.Atan2(dy, dx)
-			slope := int16(math.Round(dist / slopeScale))
-			elev := base + noise - slope
+			slope := int16(math.Ceil(dist / slopeScale))
+			radialDrop := int16(math.Round(dist*8.0 + (dist*dist)*0.08))
+			elev := base + noise - slope - radialDrop
 			if dist <= region.radius*1.2 && inOpening(angle) {
 				if elev > headLevel {
 					elev = headLevel
 				}
 			}
-			if idx < len(w.lavaElevation) && elev > w.lavaElevation[idx] {
-				w.lavaElevation[idx] = elev
+			if idx < len(w.lavaElevation) {
+				if elev > w.lavaElevation[idx] || elev < 0 {
+					w.lavaElevation[idx] = elev
+				}
 			}
 		}
 	}
@@ -2783,10 +2786,14 @@ func (w *World) spawnLavaChild(cand lavaCandidate, temp float32) bool {
 		temp = 1
 	}
 	w.groundNext[nIdx] = GroundLava
-	w.lavaHeightNext[nIdx] = 1
+	forcedHeight := 5
+	if forcedHeight > lavaMaxHeight {
+		forcedHeight = lavaMaxHeight
+	}
+	w.lavaHeightNext[nIdx] = uint8(forcedHeight)
 	w.lavaTempNext[nIdx] = temp
 	w.lavaDirNext[nIdx] = cand.dir
-	w.lavaForceNext[nIdx] = false
+	w.lavaForceNext[nIdx] = true
 	w.lavaTipNext[nIdx] = true
 	if nIdx < len(w.vegCurr) {
 		w.vegCurr[nIdx] = VegetationNone
@@ -2953,7 +2960,7 @@ func (w *World) advanceLavaTip(idx int) bool {
 		}
 	}
 
-	childTemp := temp - 0.05
+	childTemp := temp - 0.01
 	if childTemp < 0 {
 		childTemp = 0
 	}
