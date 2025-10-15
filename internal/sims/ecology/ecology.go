@@ -435,7 +435,82 @@ func (w *World) clearLavaField() {
 		if idx < len(w.display) {
 			w.display[idx] = uint8(w.groundCurr[idx])
 		}
+		if idx < len(w.lavaChannel) {
+			w.lavaChannel[idx] = 0
+		}
 	}
+}
+
+func (w *World) clearLavaFieldInRegion(region volcanoProtoRegion) float64 {
+	radius := region.radius
+	if radius <= 0 {
+		return 0
+	}
+
+	clearRadius := radius * 1.2
+	if clearRadius < radius {
+		clearRadius = radius
+	}
+
+	minX := int(math.Max(0, math.Floor(region.cx-clearRadius)))
+	maxX := int(math.Min(float64(w.w-1), math.Ceil(region.cx+clearRadius)))
+	minY := int(math.Max(0, math.Floor(region.cy-clearRadius)))
+	maxY := int(math.Min(float64(w.h-1), math.Ceil(region.cy+clearRadius)))
+
+	if minX > maxX || minY > maxY {
+		return clearRadius
+	}
+
+	radiusSq := clearRadius * clearRadius
+
+	for y := minY; y <= maxY; y++ {
+		for x := minX; x <= maxX; x++ {
+			idx := y*w.w + x
+			if idx < 0 || idx >= len(w.groundCurr) {
+				continue
+			}
+			dx := (float64(x) + 0.5) - region.cx
+			dy := (float64(y) + 0.5) - region.cy
+			if dx*dx+dy*dy > radiusSq {
+				continue
+			}
+			if idx < len(w.lavaChannel) {
+				w.lavaChannel[idx] = 0
+			}
+			if w.groundCurr[idx] != GroundLava {
+				continue
+			}
+			w.setLavaCell(idx, 0, 0, -1, false)
+			if idx < len(w.display) {
+				w.display[idx] = uint8(w.groundCurr[idx])
+			}
+		}
+	}
+
+	return clearRadius
+}
+
+func (w *World) removeLavaVentsInRadius(cx, cy, radius float64) {
+	if len(w.lavaVents) == 0 || radius <= 0 || w.w <= 0 || w.h <= 0 {
+		return
+	}
+
+	radiusSq := radius * radius
+	filtered := w.lavaVents[:0]
+	for _, vent := range w.lavaVents {
+		if vent.idx < 0 {
+			continue
+		}
+		x := float64(vent.idx%w.w) + 0.5
+		y := float64(vent.idx/w.w) + 0.5
+		dx := x - cx
+		dy := y - cy
+		if dx*dx+dy*dy <= radiusSq {
+			continue
+		}
+		filtered = append(filtered, vent)
+	}
+	w.lavaVents = filtered
 }
 
 func (w *World) pickDownhill(idx int) (int, int8, bool) {
@@ -2226,11 +2301,11 @@ func (w *World) eruptRegion(region volcanoProtoRegion) {
 		return
 	}
 
-	w.clearLavaField()
-	w.lavaVents = w.lavaVents[:0]
-	for i := range w.lavaChannel {
-		w.lavaChannel[i] = 0
+	clearRadius := w.clearLavaFieldInRegion(region)
+	if clearRadius <= 0 {
+		clearRadius = region.radius
 	}
+	w.removeLavaVentsInRadius(region.cx, region.cy, clearRadius)
 	w.buildLavaElevation(region)
 
 	minX := int(math.Floor(region.cx - region.radius))
@@ -2325,7 +2400,6 @@ func (w *World) eruptRegion(region volcanoProtoRegion) {
 		coreCells[i], coreCells[j] = coreCells[j], coreCells[i]
 	})
 
-	w.lavaVents = w.lavaVents[:0]
 	reservoirMin := w.cfg.Params.LavaReservoirMin
 	if reservoirMin < 1 {
 		reservoirMin = 1
