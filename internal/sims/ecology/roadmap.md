@@ -123,6 +123,7 @@
 * Lava persistence now leans on reservoir-fed vents and flux-aware cooling so crater pools linger while flowing rivers stay molten. The HUD snapshot exposes the new cooling and reservoir parameters for future tuning passes.
 * **Follow-up:** Focus on river shaping—channel-biased flow scoring, smarter overflow spokes, and telemetry for reservoir mass/flux to validate the new persistence model.
 * Latest crater rebuild pass carves 1–3 random spillway openings whose floor matches the reservoir head so vents keep feeding once the starter pool drains along those exits.
+* Forced spillway trail seeding now extends molten channels beyond the caldera and default lava parameters were retuned (hotter reservoirs, lower cooling) so eruptions reliably drive rivers past the volcano diameter for automated tests.
 * HUD cleanup removed the redundant “Ecology Controls” banner and now surfaces direct adjustments for lava cooling, flux reference, reservoir head, and proto strength/uplift so lava longevity and volcano shaping can be tuned live.
 * Added a debug overlay toggle (`4`) that shades the lava elevation raster so eruption tuning sessions can see crater rims and spillways at a glance.
 * Added a heat overlay toggle (`5`) that blends lava temperature/height with burning vegetation so tuning sessions can spot the hottest flows and fires instantly.

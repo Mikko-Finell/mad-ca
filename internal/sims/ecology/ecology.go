@@ -166,20 +166,20 @@ type lavaCandidate struct {
 
 const (
 	lavaMaxHeight          = 7
-	lavaFlowThreshold      = 0.9
+	lavaFlowThreshold      = 0.45
 	lavaSplitThresholdDrop = 0.15
 	lavaSplitMinHeight     = 3
-	lavaSplitChance        = 0.25
+	lavaSplitChance        = 0.35
 	lavaOverflowHeight     = 4
 	lavaBaseSpeed          = 0.9
 	lavaSpeedAlpha         = 0.3
 	lavaTipTemperatureMin  = 0.12
 	lavaReheatCap          = 0.35
-	lavaSlopeWeight        = 1.0
+	lavaSlopeWeight        = 1.4
 	lavaAlignWeight        = 0.6
-	lavaChannelWeight      = 0.8
+	lavaChannelWeight      = 1.0
 	lavaRainWeight         = 0.5
-	lavaWallWeight         = 2.0
+	lavaWallWeight         = 0.6
 	lavaChannelGrow        = 0.15
 	lavaChannelDecay       = 0.005
 )
@@ -914,6 +914,18 @@ func (w *World) Ground() []Ground { return w.groundCurr }
 
 // Vegetation exposes the active vegetation layer.
 func (w *World) Vegetation() []Vegetation { return w.vegCurr }
+
+// LavaHeightField exposes the current lava column heights.
+func (w *World) LavaHeightField() []uint8 { return w.lavaHeight }
+
+// LavaTemperatureField exposes the current lava temperatures.
+func (w *World) LavaTemperatureField() []float32 { return w.lavaTemp }
+
+// LavaDirectionField exposes the current lava heading indices.
+func (w *World) LavaDirectionField() []int8 { return w.lavaDir }
+
+// LavaTipField exposes the advancing lava tip markers.
+func (w *World) LavaTipField() []bool { return w.lavaTip }
 
 // RainMask exposes the current rain influence map.
 func (w *World) RainMask() []float32 { return w.rainCurr }
@@ -2331,7 +2343,7 @@ func (w *World) eruptRegion(region volcanoProtoRegion) {
 		maxY = w.h - 1
 	}
 
-	coreRadius := region.radius * 0.35
+	coreRadius := region.radius * 0.25
 	rimRadius := region.radius * 0.9
 	if rimRadius < coreRadius {
 		rimRadius = coreRadius
@@ -2424,7 +2436,57 @@ func (w *World) eruptRegion(region volcanoProtoRegion) {
 		if reservoirMax > reservoirMin {
 			mass += float64(w.rng.Intn(reservoirMax - reservoirMin + 1))
 		}
+		headLevel := int16(math.Floor(headDefault))
+		if headLevel < 0 {
+			headLevel = 0
+		}
+		baseAngle := w.rng.Float64() * 2 * math.Pi
+		w.carveLavaSpillway(region, baseAngle, headLevel)
+
 		outIdx, dir, downhill := w.pickDownhill(idx)
+		if dir >= 0 && int(dir) < len(lavaDirections) {
+			dv := lavaDirections[dir]
+			alignAngle := math.Atan2(dv.uy, dv.ux)
+			w.carveLavaSpillway(region, alignAngle, headLevel)
+			stepIdx := idx
+			maxSteps := int(region.radius)
+			if maxSteps < 1 {
+				maxSteps = 1
+			}
+			for s := 0; s < maxSteps; s++ {
+				nx := stepIdx%w.w + dv.dx
+				ny := stepIdx/w.w + dv.dy
+				if nx < 0 || nx >= w.w || ny < 0 || ny >= w.h {
+					break
+				}
+				stepIdx = ny*w.w + nx
+				if stepIdx < 0 || stepIdx >= len(w.groundCurr) {
+					break
+				}
+				if w.groundCurr[stepIdx] != GroundLava {
+					outIdx = stepIdx
+					break
+				}
+				w.setLavaCell(stepIdx, 0, 0, -1, false)
+				if stepIdx < len(w.display) {
+					w.display[stepIdx] = uint8(w.groundCurr[stepIdx])
+				}
+				outIdx = stepIdx
+			}
+			if outIdx < 0 || outIdx >= len(w.groundCurr) {
+				outIdx = stepIdx
+			}
+		} else if !downhill {
+			w.carveLavaSpillway(region, baseAngle+math.Pi/3, headLevel)
+		}
+		if outIdx >= 0 && outIdx < len(w.groundCurr) {
+			if w.groundCurr[outIdx] == GroundMountain {
+				w.groundCurr[outIdx] = GroundRock
+				if outIdx < len(w.display) {
+					w.display[outIdx] = uint8(GroundRock)
+				}
+			}
+		}
 		if !downhill {
 			if outIdx < 0 {
 				outIdx = idx
@@ -2449,6 +2511,74 @@ func (w *World) eruptRegion(region volcanoProtoRegion) {
 			w.lavaTip[outIdx] = true
 			if outIdx < len(w.lavaTipNext) {
 				w.lavaTipNext[outIdx] = true
+			}
+		}
+	}
+}
+
+func (w *World) carveLavaSpillway(region volcanoProtoRegion, angle float64, headLevel int16) {
+	halfWidth := 5
+	start := region.radius * 0.12
+	if start < 1 {
+		start = 1
+	}
+	maxDist := region.radius * 2.2
+	if maxDist < region.radius {
+		maxDist = region.radius
+	}
+	clearDist := 0.8
+	step := 0.5
+	if step <= 0 {
+		step = 0.5
+	}
+
+	cosA := math.Cos(angle)
+	sinA := math.Sin(angle)
+	perpX := -sinA
+	perpY := cosA
+
+	for dist := start; dist <= maxDist; dist += step {
+		baseX := region.cx + cosA*dist
+		baseY := region.cy + sinA*dist
+		for offset := -halfWidth; offset <= halfWidth; offset++ {
+			px := baseX + perpX*float64(offset)*0.6
+			py := baseY + perpY*float64(offset)*0.6
+			xi := int(math.Round(px))
+			yi := int(math.Round(py))
+			if xi < 0 || yi < 0 || xi >= w.w || yi >= w.h {
+				continue
+			}
+			idx := yi*w.w + xi
+			if idx < 0 || idx >= len(w.groundCurr) {
+				continue
+			}
+			if w.groundCurr[idx] == GroundMountain {
+				w.groundCurr[idx] = GroundRock
+				if idx < len(w.display) {
+					w.display[idx] = uint8(GroundRock)
+				}
+			}
+			if offset >= -4 && offset <= 4 && w.groundCurr[idx] == GroundLava && dist >= clearDist {
+				w.setLavaCell(idx, 0, 0, -1, false)
+				if idx < len(w.display) {
+					w.display[idx] = uint8(w.groundCurr[idx])
+				}
+			}
+			if idx < len(w.lavaElevation) && headLevel >= 0 {
+				drop := int16(dist)
+				desired := headLevel - drop
+				if desired < 0 {
+					desired = 0
+				}
+				if w.lavaElevation[idx] > desired {
+					w.lavaElevation[idx] = desired
+				}
+			}
+			if idx < len(w.vegCurr) {
+				w.vegCurr[idx] = VegetationNone
+			}
+			if idx < len(w.vegNext) {
+				w.vegNext[idx] = VegetationNone
 			}
 		}
 	}
@@ -2734,8 +2864,8 @@ func (w *World) processLavaVents() {
 			if w.groundNext[outIdx] != GroundLava {
 				w.groundNext[outIdx] = GroundLava
 			}
-			if w.lavaHeightNext[outIdx] < 1 {
-				w.lavaHeightNext[outIdx] = 1
+			if w.lavaHeightNext[outIdx] < lavaOverflowHeight {
+				w.lavaHeightNext[outIdx] = lavaOverflowHeight
 			}
 			w.lavaTempNext[outIdx] = 1
 			w.lavaDirNext[outIdx] = vent.dir
@@ -2755,6 +2885,7 @@ func (w *World) processLavaVents() {
 				w.burnNext[outIdx] = 0
 			}
 		}
+		w.ensureSpillwayTrail(idx, vent.dir, 20)
 
 		vent.massRemaining -= float64(added)
 		if vent.massRemaining > 0 {
@@ -2802,6 +2933,64 @@ func (w *World) spawnLavaChild(cand lavaCandidate, temp float32) bool {
 	}
 	w.lavaAdvancedCells = append(w.lavaAdvancedCells, nIdx)
 	return true
+}
+
+func (w *World) ensureSpillwayTrail(start int, dir int8, length int) {
+	if dir < 0 || length <= 0 {
+		return
+	}
+	if start < 0 || start >= len(w.groundNext) {
+		return
+	}
+	dv := lavaDirections[dir]
+	curr := start
+	for i := 0; i < length; i++ {
+		nx := curr%w.w + dv.dx
+		ny := curr/w.w + dv.dy
+		if nx < 0 || nx >= w.w || ny < 0 || ny >= w.h {
+			break
+		}
+		nextIdx := ny*w.w + nx
+		if nextIdx < 0 || nextIdx >= len(w.groundNext) {
+			break
+		}
+		if w.groundNext[nextIdx] == GroundMountain {
+			w.groundNext[nextIdx] = GroundRock
+		}
+		w.groundNext[nextIdx] = GroundLava
+		if nextIdx < len(w.lavaHeightNext) && int(w.lavaHeightNext[nextIdx]) < lavaOverflowHeight {
+			w.lavaHeightNext[nextIdx] = uint8(lavaOverflowHeight)
+		}
+		if nextIdx < len(w.lavaTempNext) {
+			w.lavaTempNext[nextIdx] = 1
+		}
+		if nextIdx < len(w.lavaDirNext) {
+			w.lavaDirNext[nextIdx] = dir
+		}
+		if nextIdx < len(w.lavaForceNext) {
+			w.lavaForceNext[nextIdx] = true
+		}
+		if nextIdx < len(w.lavaTipNext) {
+			w.lavaTipNext[nextIdx] = true
+		}
+		if nextIdx < len(w.vegNext) {
+			w.vegNext[nextIdx] = VegetationNone
+		}
+		if nextIdx < len(w.vegCurr) {
+			w.vegCurr[nextIdx] = VegetationNone
+		}
+		if nextIdx < len(w.burnNext) {
+			w.burnNext[nextIdx] = 0
+		}
+		if nextIdx < len(w.burnTTL) {
+			w.burnTTL[nextIdx] = 0
+		}
+		if nextIdx < len(w.lavaAdvancedCells) {
+			// no-op: we append below
+		}
+		w.lavaAdvancedCells = append(w.lavaAdvancedCells, nextIdx)
+		curr = nextIdx
+	}
 }
 
 func (w *World) advanceLavaTip(idx int) bool {
@@ -3232,7 +3421,8 @@ func (w *World) detectLavaTips() {
 			w.lavaForceNext[idx] = false
 			continue
 		}
-		w.lavaForceNext[idx] = w.lavaHeightNext[idx] >= lavaOverflowHeight
+		force := w.lavaHeightNext[idx] >= lavaOverflowHeight
+		w.lavaForceNext[idx] = force
 		dir := w.lavaDirNext[idx]
 		if dir < 0 {
 			w.lavaTipNext[idx] = false
@@ -3256,7 +3446,7 @@ func (w *World) detectLavaTips() {
 				neighbors++
 			}
 		}
-		w.lavaTipNext[idx] = neighbors <= 2
+		w.lavaTipNext[idx] = force || neighbors <= 2
 	}
 }
 
